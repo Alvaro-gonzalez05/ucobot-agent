@@ -16,6 +16,8 @@
  * Nada de esto toca la base de datos ni la API.
  */
 
+// Va empaquetado como asset de pkg (ver la clave "pkg" en package.json): sin eso,
+// el .exe compilado no encuentra el archivo y arranca sin versión.
 const VERSION = require("../package.json").version
 
 const CAPABILITIES = [

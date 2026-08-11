@@ -195,6 +195,14 @@ async function arrancarCiclo() {
   await refrescarImpresoras()
   await latir()
 
+  // El primer latido puede devolver 401 (el dashboard revocó este equipo) y en ese
+  // caso `latir` ya desvinculó. Sin este corte se armaban igual los temporizadores
+  // y quedaban latiendo para siempre con un token que ya no existe.
+  if (!config.isPaired()) {
+    estado.corriendo = false
+    return
+  }
+
   estado.timbreConectado = await doorbell.connect(() => procesarTrabajos())
 
   timerLatido = setInterval(latir, HEARTBEAT_MS)

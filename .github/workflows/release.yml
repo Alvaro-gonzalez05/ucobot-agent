@@ -1,0 +1,49 @@
+name: Release
+
+# Publica el instalador en la pestaña Releases del repo, que es de donde lo baja
+# el cliente desde el dashboard (el botón "Descargar UcoBot Agent" apunta a
+# /releases/latest).
+#
+# Para publicar una versión: subir el número en package.json, y después
+#   git tag v1.0.1 && git push origin v1.0.1
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      # pkg mete Node adentro del .exe: el cliente no instala nada previo.
+      - run: npm run build
+
+      # El ZIP lleva el exe + los scripts, porque el instalador los busca al lado.
+      - name: Armar el paquete
+        run: |
+          mkdir package
+          copy dist\UcoBotAgent.exe package\
+          copy install\install.ps1 package\
+          copy install\uninstall.ps1 package\
+          copy INSTALAR.txt package\
+          Compress-Archive -Path package\* -DestinationPath UcoBotAgent-windows.zip
+
+      - name: Publicar release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            UcoBotAgent-windows.zip
+            dist/UcoBotAgent.exe
+          generate_release_notes: true

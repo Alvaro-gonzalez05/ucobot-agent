@@ -1,0 +1,35 @@
+UCOBOT AGENT — impresion directa de tickets
+===========================================
+
+Que hace: los tickets salen apretando una sola vez, sin el cuadro de "Imprimir"
+de Chrome y sin elegir impresora. Ademas corta el papel, puede abrir la gaveta
+y imprime solos los pedidos que entran por WhatsApp aunque no haya nadie
+mirando la pantalla.
+
+Instalar (2 minutos)
+--------------------
+1. Descomprimi TODO este ZIP en una carpeta (por ejemplo, el Escritorio).
+2. Boton derecho sobre "install.ps1" -> "Ejecutar con PowerShell".
+   Si Windows avisa que el archivo viene de internet, elegi "Abrir de todos modos".
+3. Se abre solo el navegador pidiendo un codigo.
+4. En UcoBot: menu de tu perfil (arriba a la derecha) -> "Impresion directa" ->
+   "Generar codigo". Escribi ese codigo en la pantalla del paso 3.
+5. Listo. Proba con el boton "Imprimir prueba".
+
+Importante
+----------
+- Instalalo en la computadora que tiene la impresora enchufada.
+- Si la impresora es de red (WiFi o cable), se puede instalar en cualquier PC:
+  despues en UcoBot se pone la IP de la impresora en vez del nombre.
+- Arranca solo cada vez que se prende la maquina. No hay que abrir nada.
+
+Si algo no anda
+---------------
+Abri el acceso directo "Configurar impresora UcoBot" del escritorio: ahi se ve
+si esta conectado, que impresora esta usando y el registro de errores.
+
+Desinstalar
+-----------
+Boton derecho sobre "uninstall.ps1" -> "Ejecutar con PowerShell".
+
+Soporte: Codea Desarrollos

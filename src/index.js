@@ -6,6 +6,7 @@ const log = require("./logger")
 const api = require("./api")
 const doorbell = require("./doorbell")
 const setupServer = require("./setup-server")
+const installer = require("./installer")
 const { handlers } = require("./jobs")
 const { listPrinters, printerHealth } = require("./printers/list")
 const { printRawWindows } = require("./printers/windows-raw")
@@ -233,7 +234,85 @@ function abrirPantalla() {
   else exec(`xdg-open "${url}"`)
 }
 
+/**
+ * Si nos abrieron con una consola pegada (doble click al .exe), nos volvemos a
+ * lanzar sueltos y salimos.
+ *
+ * POR QUÉ: un ejecutable hecho con pkg es una aplicación de consola, así que al
+ * hacerle doble click aparece una ventana negra y el agente vive DENTRO de ella.
+ * Cerrar esa ventana —lo primero que hace cualquiera— mata el agente sin ningún
+ * aviso. Volviendo a lanzarnos con `detached`, la ventana queda huérfana y se
+ * puede cerrar tranquila: el agente sigue corriendo por su cuenta.
+ */
+function despegarDeLaConsola() {
+  if (process.platform !== "win32") return false
+  if (process.argv.includes("--child")) return false // ya somos el relanzado
+  if (!process.stdout.isTTY) return false // nos lanzaron sin consola: nada que hacer
+
+  // Con pkg, argv[1] es la ruta del script DENTRO del ejecutable y no se puede
+  // volver a pasar como argumento; con node suelto sí hace falta.
+  const args = process.pkg ? process.argv.slice(2) : process.argv.slice(1)
+
+  try {
+    const { spawn } = require("child_process")
+    const hijo = spawn(process.execPath, [...args, "--child"], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    })
+    if (!hijo.pid) throw new Error("el proceso hijo no llegó a crearse")
+    log.info(`Soltado de la consola (pid ${hijo.pid})`)
+    hijo.unref()
+    return true
+  } catch (e) {
+    // Si no se pudo, seguimos en primer plano: mejor atado a la consola que nada.
+    log.warn("No se pudo soltar de la consola:", e.message)
+    return false
+  }
+}
+
+/**
+ * ¿Ya hay otro agente corriendo en esta máquina?
+ *
+ * Dos instancias pelearían por la misma impresora y por el mismo puerto. En vez
+ * de dejar una a medio arrancar tirando errores, la segunda abre la pantalla de
+ * la que ya está viva y se va.
+ */
+async function yaHayOtroCorriendo() {
+  try {
+    const ctrl = new AbortController()
+    const t = setTimeout(() => ctrl.abort(), 1500)
+    const res = await fetch(`http://127.0.0.1:${setupServer.PUERTO}/api/status`, {
+      signal: ctrl.signal,
+    })
+    clearTimeout(t)
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 async function main() {
+  // Desinstalar: `UcoBotAgent.exe --uninstall`
+  if (process.argv.includes("--uninstall")) {
+    installer.desinstalar()
+    return
+  }
+
+  // Primera vez desde Descargas o un pendrive: se instala solo y relanza la copia
+  // buena. Esta consola queda huérfana y se puede cerrar.
+  if (installer.necesitaInstalarse()) {
+    if (installer.instalar()) return
+  } else if (despegarDeLaConsola()) {
+    return
+  }
+
+  if (await yaHayOtroCorriendo()) {
+    log.info("Ya hay un agente corriendo en esta máquina: abro su pantalla y salgo")
+    abrirPantalla()
+    return
+  }
+
   log.info(`UcoBot Agent v${VERSION} arrancando`)
   setupServer.start(estado)
 

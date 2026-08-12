@@ -30,13 +30,13 @@ jobs:
       # pkg mete Node adentro del .exe: el cliente no instala nada previo.
       - run: npm run build
 
-      # El ZIP lleva el exe + los scripts, porque el instalador los busca al lado.
+      # El .exe se instala solo, así que el ZIP es sólo una comodidad para quien
+      # prefiera bajar un paquete con las instrucciones al lado. El archivo que
+      # importa es el .exe suelto: doble click y listo.
       - name: Armar el paquete
         run: |
           mkdir package
           copy dist\UcoBotAgent.exe package\
-          copy install\install.ps1 package\
-          copy install\uninstall.ps1 package\
           copy INSTALAR.txt package\
           Compress-Archive -Path package\* -DestinationPath UcoBotAgent-windows.zip
 
@@ -44,6 +44,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            UcoBotAgent-windows.zip
             dist/UcoBotAgent.exe
+            UcoBotAgent-windows.zip
           generate_release_notes: true

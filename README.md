@@ -45,6 +45,7 @@ cae, una consulta de reserva cada minuto lo cubre.
 ```
 src/
   index.js          bucle principal: latido, timbre, ejecución de trabajos
+  installer.js      el .exe se copia solo, se agenda al inicio y se relanza
   config.js         config en disco (ProgramData\UcoBot\agent.json)
   api.js            cliente HTTP contra UcoBot
   doorbell.js       WebSocket a Supabase Realtime
@@ -58,6 +59,24 @@ src/
     tcp.js          impresoras de red por el puerto 9100
     list.js         inventario de impresoras del sistema
 ```
+
+### Se instala solo
+
+No hay instalador aparte. Al correr el `.exe` desde cualquier carpeta se copia a
+`%LOCALAPPDATA%\UcoBot`, deja un acceso directo en Inicio y otro en el escritorio,
+lanza la copia instalada suelta de la consola y sale. Sin permisos de
+administrador.
+
+Es a propósito: pedirle a un comerciante que le haga botón derecho a un `.ps1` y
+elija "Ejecutar con PowerShell" es un paso que no entiende y que Windows encima
+suele bloquear con un cartel rojo. Doble click tiene que alcanzar.
+
+Detalle importante: un ejecutable de pkg es una aplicación de consola, así que al
+hacerle doble click aparece una ventana negra y el proceso vive dentro de ella —
+cerrarla mata el agente. Por eso siempre se relanza con `detached`, y la ventana
+queda huérfana y se puede cerrar sin consecuencias.
+
+Para desinstalar: `UcoBotAgent.exe --uninstall`.
 
 ### El agente es un caño, no un cerebro
 

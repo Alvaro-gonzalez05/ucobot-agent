@@ -1,6 +1,6 @@
 {
   "name": "ucobot-agent",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Puente entre UcoBot y el hardware del local: impresión directa sin diálogo, gaveta de dinero y lo que venga.",
   "main": "src/index.js",
   "bin": "src/index.js",
@@ -9,7 +9,9 @@
     "build": "pkg . --targets node22-win-x64 --output dist/UcoBotAgent.exe --compress GZip"
   },
   "pkg": {
-    "assets": ["package.json"],
+    "assets": [
+      "package.json"
+    ],
     "outputPath": "dist"
   },
   "dependencies": {

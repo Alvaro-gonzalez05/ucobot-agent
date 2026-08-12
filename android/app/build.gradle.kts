@@ -39,6 +39,9 @@ android {
 
     buildFeatures {
         viewBinding = true
+        // Desde AGP 8 hay que pedirlo explícitamente: dejó de generarse solo.
+        // Se usa para reportar la versión de la app en el latido y en la pantalla.
+        buildConfig = true
     }
 }
 
@@ -46,8 +49,6 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
-    implementation("androidx.lifecycle:lifecycle-service:2.8.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     // OkHttp trae HTTP y WebSocket en la misma librería: el timbre y la API
     // comparten cliente y no hace falta sumar nada más. El JSON se arma con

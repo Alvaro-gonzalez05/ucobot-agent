@@ -10,10 +10,17 @@ name: Release
 on:
   push:
     tags: ["v*"]
+    # Los cambios en la app Android compilan siempre, aunque no haya tag: se
+    # escribe sin un POSNET a mano, así que CI es la única red de seguridad.
+    branches: [main]
+    paths: ["android/**"]
   workflow_dispatch:
 
 jobs:
   build-windows:
+    # El .exe sólo se arma para publicar una versión; compilarlo en cada push
+    # sería gastar cinco minutos de CI en algo que ya se probó a mano.
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     permissions:
       contents: write
@@ -46,4 +53,45 @@ jobs:
           files: |
             dist/UcoBotAgent.exe
             UcoBotAgent-windows.zip
+          generate_release_notes: true
+
+  # El APK para los POSNET Android (iMin y compañía). Se compila siempre, aunque
+  # no haya tag: es la única forma de saber que el código Android compila, porque
+  # se escribe sin un equipo a mano.
+  build-android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # No hay gradle wrapper en el repo (es un .jar binario): la acción instala
+      # Gradle y se lo invoca directo.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Compilar el APK
+        working-directory: android
+        run: gradle assembleRelease --no-daemon
+
+      - name: Renombrar
+        run: cp android/app/build/outputs/apk/release/app-release.apk UcoBotAgent-android.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UcoBotAgent-android
+          path: UcoBotAgent-android.apk
+
+      - name: Publicar en la release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: UcoBotAgent-android.apk
           generate_release_notes: true

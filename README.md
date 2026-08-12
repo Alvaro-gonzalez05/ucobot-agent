@@ -40,6 +40,22 @@ El mensaje de Realtime no lleva datos (`{ring:1}`): sólo despierta al agente, q
 después va a buscar el trabajo real por HTTPS con su token. Si el WebSocket se
 cae, una consulta de reserva cada minuto lo cubre.
 
+## Dos agentes, un solo contrato
+
+| | |
+|---|---|
+| `src/` | Agente de Windows (Node, empaquetado como `.exe`) |
+| `android/` | Agente para POSNET Android (Kotlin, `.apk`) |
+
+Los dos hablan **exactamente los mismos endpoints** y reciben **los mismos bytes
+ESC/POS**. Al servidor no hubo que tocarle una línea para sumar Android: no
+distingue si del otro lado hay una PC o una tablet.
+
+En Android lo que evita que el sistema mate al agente es un **servicio en primer
+plano** — esa notificación fija que no se puede sacar. No es un adorno: es el
+trato con el sistema operativo. Sin ella, Android congela la app apenas se apaga
+la pantalla y las comandas dejan de salir sin que nadie se entere.
+
 ## Arquitectura
 
 ```

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Los mismos de la marca: el verde del logo y el gris oscuro del panel. -->
+    <color name="ucobot_verde">#D1F366</color>
+    <color name="ucobot_oscuro">#1C1C28</color>
+    <color name="ucobot_gris">#9B9BAA</color>
+</resources>

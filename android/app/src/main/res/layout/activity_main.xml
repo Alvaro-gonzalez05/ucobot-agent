@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/ucobot_oscuro"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:id="@+id/titulo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="UcoBot Agent"
+            android:textColor="#FFFFFF"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/subtitulo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Impresión de tickets en este equipo"
+            android:textColor="@color/ucobot_gris"
+            android:textSize="13sp" />
+
+        <!-- Estado (sólo cuando ya está vinculado) -->
+        <LinearLayout
+            android:id="@+id/bloque_estado"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/estado"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Conectando..."
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/detalle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:lineSpacingExtra="4dp"
+                android:textColor="@color/ucobot_gris"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/btn_probar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:backgroundTint="@color/ucobot_verde"
+                android:text="Imprimir prueba"
+                android:textColor="@color/ucobot_oscuro"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btn_desvincular"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Desvincular este equipo"
+                android:textColor="@color/ucobot_gris" />
+        </LinearLayout>
+
+        <!-- Vinculación (sólo cuando todavía no se vinculó) -->
+        <LinearLayout
+            android:id="@+id/bloque_pareo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:lineSpacingExtra="4dp"
+                android:text="Entrá a UcoBot desde cualquier dispositivo: menú de tu perfil → UcoBot Agent → Generar código. Después escribilo acá."
+                android:textColor="@color/ucobot_gris"
+                android:textSize="14sp" />
+
+            <EditText
+                android:id="@+id/campo_codigo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:autofillHints=""
+                android:background="#14141C"
+                android:gravity="center"
+                android:hint="XXXX-XXXX"
+                android:inputType="textCapCharacters"
+                android:letterSpacing="0.2"
+                android:maxLength="9"
+                android:padding="16dp"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#55555F"
+                android:textSize="24sp" />
+
+            <Button
+                android:id="@+id/btn_vincular"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:backgroundTint="@color/ucobot_verde"
+                android:text="Vincular"
+                android:textColor="@color/ucobot_oscuro"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/mensaje"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:lineSpacingExtra="3dp"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/version"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:textColor="#55555F"
+            android:textSize="11sp" />
+    </LinearLayout>
+</ScrollView>

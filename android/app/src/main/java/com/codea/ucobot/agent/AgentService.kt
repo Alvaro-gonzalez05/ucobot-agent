@@ -106,6 +106,9 @@ class AgentService : Service() {
         corriendo = false
         timbreConectado = false
         doorbell?.disconnect()
+        // Soltar el socket de la impresora: dejarlo colgado es lo que terminaba
+        // trabando el Bluetooth del equipo.
+        Printer.desconectar()
         scope.cancel()
         super.onDestroy()
         Log.i(TAG, "Servicio detenido")
@@ -157,9 +160,15 @@ class AgentService : Service() {
                 try {
                     var trabajos = Api.claimJobs()
                     while (trabajos.length() > 0) {
+                        var huboError = false
                         for (i in 0 until trabajos.length()) {
-                            ejecutar(trabajos.getJSONObject(i))
+                            if (!ejecutar(trabajos.getJSONObject(i))) huboError = true
                         }
+                        // Un trabajo que falla vuelve a la cola, así que la próxima
+                        // consulta lo devuelve enseguida. Sin esta pausa se
+                        // reintentaba tres veces en dos segundos: la impresora ni
+                        // se enteraba de que le habían dado tiempo a recuperarse.
+                        if (huboError) delay(4000)
                         trabajos = Api.claimJobs()
                     }
                 } catch (e: Api.ApiException) {
@@ -173,7 +182,8 @@ class AgentService : Service() {
         }
     }
 
-    private fun ejecutar(trabajo: JSONObject) {
+    /** @return true si salió bien. */
+    private fun ejecutar(trabajo: JSONObject): Boolean {
         val id = trabajo.getString("id")
         val tipo = trabajo.getString("type")
         val payload = trabajo.optJSONObject("payload") ?: JSONObject()
@@ -195,6 +205,7 @@ class AgentService : Service() {
             trabajosHechos++
             ultimoError = null
             reportarSeguro(id, true, null)
+            return true
         } catch (e: Exception) {
             trabajosFallidos++
             ultimoError = e.message
@@ -202,6 +213,7 @@ class AgentService : Service() {
             // El mensaje va tal cual al dashboard: tiene que servirle a alguien
             // parado frente a la impresora, no a un programador.
             reportarSeguro(id, false, e.message)
+            return false
         }
     }
 

@@ -5,35 +5,40 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.util.Log
+import java.io.OutputStream
 import java.util.UUID
 
 /**
  * La impresora integrada del POSNET.
  *
- * POR QUÉ POR BLUETOOTH Y NO POR EL SDK DE iMin
- * El SDK 2.0 de iMin ofrece tres caminos para llegar a la impresora, y uno de
- * ellos es un dispositivo Bluetooth *virtual* llamado "InnerPrinter". No hay
- * radio de por medio ni nada que emparejar por aire: es simplemente cómo el
- * fabricante publica la impresora al sistema operativo.
+ * CÓMO SE LLEGA A ELLA
+ * El SDK de iMin publica la impresora como un dispositivo Bluetooth *virtual*
+ * llamado "InnerPrinter". No hay radio de por medio: es la forma que eligió el
+ * fabricante para exponerla al sistema. Un socket RFCOMM es un flujo de bytes,
+ * así que se le escriben los mismos ESC/POS que arma la web para las térmicas de
+ * Windows, sin traducir nada.
  *
- * Se eligió ese camino para la primera versión por un motivo práctico: usa API
- * estándar de Android y nada más. El camino por AIDL obliga a sumar la librería
- * de iMin y a acertarle a la firma exacta de sus métodos, algo que no se puede
- * verificar sin el equipo en la mano — y código que no se puede probar no debería
- * ser lo único que separa a un ticket de salir.
+ * POR QUÉ LA CONEXIÓN SE MANTIENE ABIERTA
+ * La primera versión abría y cerraba el socket en cada ticket, con el argumento
+ * de que así siempre se arrancaba de cero. En un iMin Swift 2 Pro eso se degrada
+ * de una forma fea y medible: los primeros tickets salen en un segundo, después
+ * empiezan a tardar 17 y 29 segundos, y al rato la impresora **desaparece de la
+ * lista de dispositivos** y ya no imprime nada hasta reiniciar. El stack de
+ * Bluetooth de Android no está hecho para que le abran y cierren sockets todo el
+ * día.
  *
- * Un socket RFCOMM es un flujo de bytes: se le escriben los mismos ESC/POS que
- * arma la web para las térmicas de Windows, sin traducir nada.
+ * Ahora el socket se abre una vez y se reusa. Si una escritura falla, se cierra,
+ * se espera un momento y se reconecta una sola vez — que cubre el caso real de
+ * que alguien apague y prenda el equipo.
  *
- * SI ESTO NO FUNCIONA EN EL EQUIPO: la alternativa es `sendRAWData(fd, bytes,
- * callback)` del AIDL de iMin, que recibe exactamente el mismo array de bytes.
- * Cambia cómo se abre el canal, no lo que se manda.
+ * También se cachea el `BluetoothDevice`: consultar `bondedDevices` en cada
+ * ticket y en cada latido era otra forma de castigar al mismo stack.
  */
 object Printer {
 
     private const val TAG = "UcoBotPrinter"
 
-    /** Nombre con el que iMin publica la impresora integrada. */
+    /** Nombres con los que los fabricantes publican la impresora integrada. */
     private val NOMBRES = listOf("InnerPrinter", "BluetoothPrinter", "iMinPrinter")
 
     /** UUID del perfil de puerto serie: el estándar para hablar con impresoras. */
@@ -41,73 +46,142 @@ object Printer {
 
     class PrinterException(message: String) : Exception(message)
 
+    private var dispositivo: BluetoothDevice? = null
+    private var socket: BluetoothSocket? = null
+    private var salida: OutputStream? = null
+
+    /** Última vez que se buscó el dispositivo, para no rastrillar en cada latido. */
+    private var ultimaBusqueda = 0L
+    private const val CACHE_BUSQUEDA_MS = 60_000L
+
+    private val candado = Any()
+
+    // --- Conexión ----------------------------------------------------------
+
     @SuppressLint("MissingPermission")
-    private fun buscarImpresora(): BluetoothDevice? {
-        val adapter = BluetoothAdapter.getDefaultAdapter() ?: return null
-        if (!adapter.isEnabled) return null
+    private fun buscarDispositivo(forzar: Boolean = false): BluetoothDevice? {
+        val cacheado = dispositivo
+        if (cacheado != null && !forzar &&
+            System.currentTimeMillis() - ultimaBusqueda < CACHE_BUSQUEDA_MS
+        ) {
+            return cacheado
+        }
+
+        val adapter = BluetoothAdapter.getDefaultAdapter() ?: return cacheado
+        if (!adapter.isEnabled) return cacheado
+
         return try {
-            adapter.bondedDevices?.firstOrNull { d ->
+            val encontrado = adapter.bondedDevices?.firstOrNull { d ->
                 NOMBRES.any { d.name?.contains(it, ignoreCase = true) == true }
             }
+            ultimaBusqueda = System.currentTimeMillis()
+            // Si en esta pasada no aparece, se conserva el que ya teníamos: el
+            // listado se pone caprichoso justo cuando el stack está cargado, y
+            // olvidarlo ahí es lo que producía el "no se encontró la impresora".
+            if (encontrado != null) dispositivo = encontrado
+            dispositivo
         } catch (e: SecurityException) {
-            // Falta el permiso BLUETOOTH_CONNECT: lo pide la pantalla principal.
             Log.w(TAG, "Sin permiso para ver los dispositivos: ${e.message}")
-            null
+            cacheado
         }
     }
 
-    /** ¿Se ve la impresora integrada? Lo usa el latido para reportar el estado. */
-    fun disponible(): Boolean = buscarImpresora() != null
-
-    /**
-     * Manda bytes crudos a la impresora.
-     *
-     * Se abre el socket, se escribe y se cierra en cada ticket en vez de mantener
-     * la conexión abierta: una conexión viva durante horas se cae sola y hay que
-     * detectarlo y reconectar, mientras que abrirla cuesta milisegundos y siempre
-     * arranca de cero. Para tickets sueltos, lo simple gana.
-     */
     @SuppressLint("MissingPermission")
-    fun print(bytes: ByteArray) {
-        val dispositivo = buscarImpresora()
+    private fun conectar() {
+        if (salida != null && socket?.isConnected == true) return
+
+        cerrar()
+
+        val d = buscarDispositivo()
             ?: throw PrinterException(
                 "No se encontró la impresora integrada. Revisá que el Bluetooth esté " +
                     "encendido y que la app tenga permiso de dispositivos cercanos."
             )
 
-        var socket: BluetoothSocket? = null
         try {
-            socket = dispositivo.createRfcommSocketToServiceRecord(SPP)
-            socket.connect()
-            socket.outputStream.apply {
-                write(bytes)
-                flush()
-            }
-            // Respiro antes de cortar: si se cierra el socket en el mismo instante,
-            // la impresora puede descartar lo último que le llegó.
-            Thread.sleep(300)
-            Log.i(TAG, "Impresos ${bytes.size} bytes")
+            val s = d.createRfcommSocketToServiceRecord(SPP)
+            s.connect()
+            socket = s
+            salida = s.outputStream
+            Log.i(TAG, "Conectado a ${d.name}")
         } catch (e: SecurityException) {
             throw PrinterException("Falta el permiso de dispositivos cercanos")
         } catch (e: Exception) {
+            cerrar()
+            throw PrinterException(e.message ?: "No se pudo conectar a la impresora")
+        }
+    }
+
+    private fun cerrar() {
+        try {
+            salida?.close()
+        } catch (_: Exception) {
+        }
+        try {
+            socket?.close()
+        } catch (_: Exception) {
+        }
+        salida = null
+        socket = null
+    }
+
+    /**
+     * ¿Se ve la impresora? Lo consulta el latido para reportar el estado.
+     * Usa el caché: no vale la pena molestar al Bluetooth cada 30 segundos.
+     */
+    fun disponible(): Boolean = synchronized(candado) {
+        salida != null || buscarDispositivo() != null
+    }
+
+    // --- Impresión ---------------------------------------------------------
+
+    /**
+     * Manda bytes crudos a la impresora.
+     *
+     * Un solo reintento y con una espera en el medio: si el primer intento falla
+     * por una conexión vieja, el segundo con el socket nuevo la arregla. Si el
+     * segundo también falla, es un problema de verdad (sin papel, apagada) y hay
+     * que avisarlo, no seguir insistiendo.
+     */
+    fun print(bytes: ByteArray) = synchronized(candado) {
+        try {
+            escribir(bytes)
+        } catch (primera: Exception) {
+            Log.w(TAG, "Falló la escritura, reconectando: ${primera.message}")
+            cerrar()
+            Thread.sleep(700)
+            // Segundo intento buscando el dispositivo de nuevo por si cambió.
+            buscarDispositivo(forzar = true)
+            escribir(bytes)
+        }
+    }
+
+    private fun escribir(bytes: ByteArray) {
+        conectar()
+        val out = salida ?: throw PrinterException("La impresora no está conectada")
+        try {
+            out.write(bytes)
+            out.flush()
+            // Respiro para que el buffer se vacíe antes de dar el trabajo por hecho:
+            // sin esto, un corte de papel puede llegar antes que las últimas líneas.
+            Thread.sleep(250)
+            Log.i(TAG, "Impresos ${bytes.size} bytes")
+        } catch (e: Exception) {
             throw PrinterException(e.message ?: "No se pudo imprimir")
-        } finally {
-            try {
-                socket?.close()
-            } catch (_: Exception) {
-            }
         }
     }
 
     /** Pulso a la gaveta de dinero por el conector de la impresora. */
     fun abrirGaveta() = print(byteArrayOf(0x1B, 0x70, 0x00, 0x19, 0xFA.toByte()))
 
+    /** Corta la conexión: se llama al apagar el servicio. */
+    fun desconectar() = synchronized(candado) { cerrar() }
+
     /**
      * Ticket de prueba armado acá adentro.
      *
      * Es lo único que el agente genera por su cuenta: sirve para saber si la
-     * impresora responde sin depender de que UcoBot esté al alcance, por ejemplo
-     * mientras se está instalando y todavía no se vinculó.
+     * impresora responde sin depender de que UcoBot esté al alcance.
      */
     fun ticketDePrueba(anchoMm: Int): ByteArray {
         val cols = if (anchoMm == 58) 32 else 48
@@ -123,8 +197,10 @@ object Printer {
         linea("UCOBOT")
         raw(0x1D, 0x21, 0x00)
         linea("Prueba de impresion")
-        linea(java.text.SimpleDateFormat("dd/MM/yy HH:mm:ss", java.util.Locale("es", "AR"))
-            .format(java.util.Date()))
+        linea(
+            java.text.SimpleDateFormat("dd/MM/yy HH:mm:ss", java.util.Locale("es", "AR"))
+                .format(java.util.Date())
+        )
         raw(0x1B, 0x61, 0x00)       // izquierda
         linea("-".repeat(cols))
         linea("Equipo: ${android.os.Build.MODEL}")

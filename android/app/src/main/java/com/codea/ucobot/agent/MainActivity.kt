@@ -54,6 +54,7 @@ class MainActivity : AppCompatActivity() {
         vista.btnVincular.setOnClickListener { vincular() }
         vista.btnProbar.setOnClickListener { probarImpresion() }
         vista.btnDesvincular.setOnClickListener { confirmarDesvinculacion() }
+        vista.btnActualizar.setOnClickListener { actualizar() }
 
         asegurarPermisos()
         if (Config.isPaired) AgentService.iniciar(this)
@@ -169,6 +170,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Instala la versión que el servicio ya dejó bajada.
+     *
+     * El permiso de "instalar apps desconocidas" no se resuelve con un diálogo:
+     * hay que mandar a la persona a Ajustes. Si no se explica acá, el sistema
+     * rebota sin decir nada y parece que el botón no anda.
+     */
+    private fun actualizar() {
+        if (Updater.necesitaPermisoDeInstalacion(this)) {
+            mensaje(
+                "Android necesita tu permiso para instalar la actualización. " +
+                    "Activá \"Permitir de esta fuente\" y volvé.",
+                error = false
+            )
+            try {
+                startActivity(Updater.intentDePermiso(this))
+            } catch (e: Exception) {
+                mensaje("No se pudo abrir Ajustes: activá 'instalar apps desconocidas' a mano", true)
+            }
+            return
+        }
+
+        val intent = Updater.intentDeInstalacion(this)
+        if (intent == null) {
+            mensaje("La actualización todavía se está descargando", error = false)
+            return
+        }
+        startActivity(intent)
+    }
+
     private fun confirmarDesvinculacion() {
         AlertDialog.Builder(this)
             .setTitle("Desvincular este equipo")
@@ -192,6 +223,10 @@ class MainActivity : AppCompatActivity() {
         vista.bloquePareo.visibility = if (vinculado) View.GONE else View.VISIBLE
 
         if (!vinculado) return
+
+        val nueva = Updater.pendiente
+        vista.btnActualizar.visibility = if (nueva != null) View.VISIBLE else View.GONE
+        if (nueva != null) vista.btnActualizar.text = "Actualizar a la versión $nueva"
 
         vista.estado.text = when {
             !AgentService.corriendo -> "Servicio detenido"

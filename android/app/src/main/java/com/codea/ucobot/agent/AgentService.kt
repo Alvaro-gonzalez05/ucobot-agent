@@ -126,6 +126,17 @@ class AgentService : Service() {
                     // Si el servidor dice que hay trabajo esperando, el timbre no
                     // llegó: se agarra ahora en vez de esperar al próximo ciclo.
                     if (r.optInt("pending", 0) > 0) procesarTrabajos()
+
+                    // Versión nueva: se baja sola y queda una notificación
+                    // esperando. Instalarla necesita un toque humano, porque
+                    // Android no deja que una app se reemplace sin confirmación.
+                    r.optJSONObject("update")?.let { u ->
+                        Updater.revisar(
+                            this@AgentService,
+                            u.optString("version"),
+                            u.optString("url")
+                        )
+                    }
                 } catch (e: Api.ApiException) {
                     if (e.status == 401) {
                         Log.w(TAG, "Equipo revocado desde el dashboard")

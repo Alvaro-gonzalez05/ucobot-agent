@@ -7,6 +7,7 @@ const api = require("./api")
 const doorbell = require("./doorbell")
 const setupServer = require("./setup-server")
 const installer = require("./installer")
+const updater = require("./updater")
 const { handlers } = require("./jobs")
 const { listPrinters, printerHealth } = require("./printers/list")
 const { printRawWindows } = require("./printers/windows-raw")
@@ -68,6 +69,9 @@ async function latir() {
     // Si el servidor dice que hay trabajo esperando, el timbre no llegó: lo
     // agarramos ahora en vez de esperar al siguiente ciclo.
     if (r && r.pending > 0) procesarTrabajos()
+    // Y si hay una versión nueva, se instala sola. Nunca en el medio de un
+    // ticket: reemplazar el ejecutable mata este proceso.
+    if (r && r.update) updater.aplicar(r.update, () => procesando)
   } catch (e) {
     if (e.status === 401) {
       log.warn("El dashboard revocó este equipo. Hay que volver a vincularlo.")

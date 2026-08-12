@@ -138,7 +138,12 @@ function instalar() {
     console.log("  ✓ Acceso directo en el escritorio")
 
     // La copia instalada arranca suelta: esta consola se puede cerrar tranquila.
-    const hijo = spawn(EXE_INSTALADO, ["--child", "--show"], {
+    // Con --silent (o sea, viniendo de una actualización automática) no se abre
+    // la pantalla: esto pasa a media tarde y nadie quiere ver saltar una pestaña
+    // en la caja mientras atiende.
+    const silencioso = process.argv.includes("--silent")
+    const args = silencioso ? ["--child", "--no-open"] : ["--child", "--show"]
+    const hijo = spawn(EXE_INSTALADO, args, {
       detached: true,
       stdio: "ignore",
       windowsHide: true,

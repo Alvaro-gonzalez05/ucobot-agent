@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sólo se comparte la carpeta de actualizaciones. El APK bajado tiene que ser
+  legible por el instalador del sistema, que es otra app: sin un FileProvider,
+  Android bloquea el acceso al archivo y la instalación falla sin explicar por qué.
+-->
+<paths>
+    <external-files-path name="updates" path="updates/" />
+</paths>

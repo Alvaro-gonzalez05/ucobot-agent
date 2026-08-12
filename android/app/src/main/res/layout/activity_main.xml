@@ -56,6 +56,19 @@
                 android:textColor="@color/ucobot_gris"
                 android:textSize="13sp" />
 
+            <!-- Sólo aparece cuando hay una versión bajada esperando. Android
+                 exige que un humano confirme la instalación de un APK. -->
+            <Button
+                android:id="@+id/btn_actualizar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:backgroundTint="#3B82F6"
+                android:text="Actualizar la app"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
             <Button
                 android:id="@+id/btn_probar"
                 android:layout_width="match_parent"

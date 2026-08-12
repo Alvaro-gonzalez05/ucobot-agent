@@ -22,6 +22,10 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
+    <!-- Para actualizarse sola. Android igual exige que un humano confirme la
+         instalación: esto sólo permite pedirla, no instalar en silencio. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
@@ -44,6 +48,19 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- Le da al instalador del sistema permiso para leer el APK que bajamos.
+             Sin esto Android bloquea el archivo y la actualización falla sin
+             explicar por qué. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- Que vuelva solo cuando se reinicia el equipo: en un local nadie se
              acuerda de abrir una app de fondo después de un corte de luz. -->

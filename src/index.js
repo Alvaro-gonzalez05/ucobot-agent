@@ -31,8 +31,13 @@ const { VERSION } = require("./capabilities")
  */
 
 const HEARTBEAT_MS = 30_000
-/** Consulta de reserva por si el timbre se cayó sin avisar. */
-const POLL_RESERVA_MS = 60_000
+/**
+ * Consulta de reserva por si el timbre se cayó o la red bloquea WebSockets.
+ * Cinco segundos limita la demora sin volver al sondeo por segundo que se evitó
+ * al crear el timbre. También cubre el caso más difícil de detectar: un canal
+ * que todavía figura conectado pero perdió un aviso durante un corte breve.
+ */
+const POLL_RESERVA_MS = 5_000
 /** El inventario de impresoras cambia poco; no hace falta mirarlo seguido. */
 const REFRESCO_IMPRESORAS_MS = 5 * 60_000
 
@@ -52,6 +57,10 @@ let timerLatido = null
 let timerPoll = null
 let timerImpresoras = null
 let procesando = false
+
+function consultaDeReserva() {
+  procesarTrabajos()
+}
 
 // --- Ciclo de trabajo -------------------------------------------------------
 
@@ -208,10 +217,17 @@ async function arrancarCiclo() {
     return
   }
 
-  estado.timbreConectado = await doorbell.connect(() => procesarTrabajos())
+  estado.timbreConectado = await doorbell.connect(
+    () => procesarTrabajos(),
+    (conectado) => {
+      estado.timbreConectado = conectado
+      // Si se acaba de caer, no esperamos cinco segundos para revisar la cola.
+      if (!conectado) procesarTrabajos()
+    }
+  )
 
   timerLatido = setInterval(latir, HEARTBEAT_MS)
-  timerPoll = setInterval(procesarTrabajos, POLL_RESERVA_MS)
+  timerPoll = setInterval(consultaDeReserva, POLL_RESERVA_MS)
   timerImpresoras = setInterval(refrescarImpresoras, REFRESCO_IMPRESORAS_MS)
 
   // Por si quedó algo de antes de que se apagara la PC.

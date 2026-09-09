@@ -23,8 +23,9 @@ const log = require("./logger")
 
 let cliente = null
 let canal = null
+let conectado = false
 
-async function connect(onRing) {
+async function connect(onRing, onStatus) {
   const cfg = config.load()
   if (!cfg.realtime || !cfg.realtime.url || !cfg.realtime.anon_key) {
     log.warn("Sin datos de Realtime: el agente va a funcionar por consulta periódica")
@@ -42,10 +43,12 @@ async function connect(onRing) {
     canal = cliente
       .channel(cfg.realtime.channel, { config: { private: false } })
       .on("broadcast", { event: "job" }, () => onRing())
-      .subscribe((estado) => {
-        if (estado === "SUBSCRIBED") log.info("Timbre conectado")
-        else if (estado === "CHANNEL_ERROR" || estado === "TIMED_OUT") {
-          log.warn(`Timbre desconectado (${estado}); se reintenta solo`)
+      .subscribe((estado, error) => {
+        conectado = estado === "SUBSCRIBED"
+        if (typeof onStatus === "function") onStatus(conectado)
+        if (conectado) log.info("Timbre conectado")
+        else if (estado === "CHANNEL_ERROR" || estado === "TIMED_OUT" || estado === "CLOSED") {
+          log.warn(`Timbre desconectado (${estado}); se usa la consulta de reserva${error ? `: ${error.message || error}` : ""}`)
         }
       })
 
@@ -64,6 +67,7 @@ function disconnect() {
   }
   canal = null
   cliente = null
+  conectado = false
 }
 
 module.exports = { connect, disconnect }

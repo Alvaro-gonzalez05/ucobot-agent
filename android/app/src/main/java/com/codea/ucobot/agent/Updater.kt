@@ -31,7 +31,9 @@ import java.util.concurrent.TimeUnit
 object Updater {
 
     private const val TAG = "UcoBotUpdater"
-    private const val CANAL = "ucobot_update"
+    // ID nuevo: Android no permite bajar la importancia de un canal ya creado.
+    // Los equipos que tenían el canal sonoro reciben así el canal silencioso.
+    private const val CANAL = "ucobot_update_silent"
     private const val ID_NOTIFICACION = 2
 
     private val client = OkHttpClient.Builder()
@@ -60,6 +62,9 @@ object Updater {
     fun revisar(context: Context, version: String, url: String) {
         if (bajando) return
         if (version == BuildConfig.VERSION_NAME) return
+        // El servidor informa la versión en cada latido. Si ya está lista no
+        // recreamos la notificación cada 30 segundos ni interrumpimos el audio.
+        if (pendiente == version) return
 
         val archivo = archivoDe(context, version)
 
@@ -142,10 +147,12 @@ object Updater {
                     NotificationChannel(
                         CANAL,
                         "Actualizaciones de UcoBot Agent",
-                        // Default y no LOW: esta sí tiene que verse, porque sin el
-                        // toque del usuario la actualización no pasa nunca.
-                        NotificationManager.IMPORTANCE_DEFAULT
-                    )
+                        NotificationManager.IMPORTANCE_LOW
+                    ).apply {
+                        setSound(null, null)
+                        enableVibration(false)
+                        setShowBadge(false)
+                    }
                 )
             }
 
@@ -165,6 +172,8 @@ object Updater {
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
                 .setContentIntent(abrir)
                 .setAutoCancel(true)
+                .setOnlyAlertOnce(true)
+                .setSilent(true)
                 .build()
 
             nm.notify(ID_NOTIFICACION, n)

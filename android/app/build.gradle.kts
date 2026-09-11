@@ -14,17 +14,36 @@ android {
         // en circulación es más viejo que eso (el Swift 2 Pro trae Android 13).
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.1.3"
+        versionCode = 6
+        versionName = "1.1.4"
+    }
+
+    val releaseKeystore = System.getenv("ANDROID_KEYSTORE_PATH")
+    val releaseStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+    val releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+    val releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+
+    signingConfigs {
+        if (!releaseKeystore.isNullOrBlank()) {
+            create("releaseStable") {
+                storeFile = file(releaseKeystore)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Se firma con la clave de debug a propósito: el APK se instala a mano
-            // en los equipos del local, no pasa por Play Store, y una clave de
-            // release obligaría a manejar un keystore en CI para nada.
-            signingConfig = signingConfigs.getByName("debug")
+            // Los releases públicos usan siempre la misma clave. Una clave debug
+            // creada por cada runner hace que Android rechace la actualización.
+            signingConfig = if (!releaseKeystore.isNullOrBlank()) {
+                signingConfigs.getByName("releaseStable")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

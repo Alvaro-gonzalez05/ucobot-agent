@@ -249,6 +249,8 @@ class AgentService : Service() {
         ).apply {
             description = "Mantiene la impresión de tickets funcionando"
             setShowBadge(false)
+            setSound(null, null)
+            enableVibration(false)
         }
         getSystemService(NotificationManager::class.java).createNotificationChannel(canal)
     }
@@ -267,6 +269,8 @@ class AgentService : Service() {
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentIntent(abrir)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
             .build()
     }
 

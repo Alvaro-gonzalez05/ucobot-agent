@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.media.AudioManager
 import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -44,6 +45,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // En los POSNET, las teclas físicas deben seguir controlando la música.
+        // La app no solicita foco de audio ni debe provocar que el sistema la baje.
+        volumeControlStream = AudioManager.STREAM_MUSIC
         Config.init(this)
 
         vista = ActivityMainBinding.inflate(layoutInflater)

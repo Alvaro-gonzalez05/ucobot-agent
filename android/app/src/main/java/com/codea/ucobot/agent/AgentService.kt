@@ -270,7 +270,6 @@ class AgentService : Service() {
             .setContentIntent(abrir)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setSilent(true)
             .build()
     }
 

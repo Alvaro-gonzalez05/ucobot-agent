@@ -173,7 +173,6 @@ object Updater {
                 .setContentIntent(abrir)
                 .setAutoCancel(true)
                 .setOnlyAlertOnce(true)
-                .setSilent(true)
                 .build()
 
             nm.notify(ID_NOTIFICACION, n)

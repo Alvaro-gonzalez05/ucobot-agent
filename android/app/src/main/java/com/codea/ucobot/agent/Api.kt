@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
 object Api {
 
     /** Lo que este agente sabe hacer. El servidor filtra los trabajos por esto. */
-    val CAPABILITIES = listOf("print.raw", "cashdrawer.open", "agent.ping")
+    val CAPABILITIES = listOf("print.raw", "cashdrawer.open", "agent.ping", "order.alert")
 
     private val JSON = "application/json; charset=utf-8".toMediaType()
 
@@ -108,6 +108,7 @@ object Api {
             .put("version", BuildConfig.VERSION_NAME)
             .put("capabilities", capabilitiesJson())
             .put("devices", devicesJson())
+            .put("device_id", Config.deviceId ?: JSONObject.NULL)
 
         val r = post("/api/agent/pair", body, auth = false)
 
@@ -144,6 +145,17 @@ object Api {
             .put("capabilities", capabilitiesJson())
             .put("limit", limit)
         return post("/api/agent/jobs/next", body).optJSONArray("jobs") ?: JSONArray()
+    }
+
+    /**
+     * De estos pedidos, cuáles siguen sin atender. Lo usa la alarma mientras
+     * suena, para callarse en cuanto alguien los confirma desde cualquier equipo.
+     */
+    fun pedidosPendientes(ids: Collection<String>): Set<String> {
+        val lista = JSONArray().apply { ids.forEach { put(it) } }
+        val r = post("/api/agent/alerts", JSONObject().put("order_ids", lista))
+        val pendientes = r.optJSONArray("pending") ?: return ids.toSet()
+        return (0 until pendientes.length()).map { pendientes.getString(it) }.toSet()
     }
 
     /** Informa cómo salió un trabajo. El mensaje de error se ve en el dashboard. */

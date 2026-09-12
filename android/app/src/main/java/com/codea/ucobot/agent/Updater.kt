@@ -162,7 +162,7 @@ object Updater {
             val abrir = PendingIntent.getActivity(
                 context,
                 0,
-                Intent(context, MainActivity::class.java),
+                Intent(context, EstadoActivity::class.java),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
 

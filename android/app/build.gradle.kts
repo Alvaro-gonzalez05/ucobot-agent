@@ -14,8 +14,8 @@ android {
         // en circulación es más viejo que eso (el Swift 2 Pro trae Android 13).
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.1.5"
+        versionCode = 8
+        versionName = "1.2.0"
     }
 
     val releaseKeystore = System.getenv("ANDROID_KEYSTORE_PATH")
@@ -73,4 +73,7 @@ dependencies {
     // comparten cliente y no hace falta sumar nada más. El JSON se arma con
     // org.json, que ya viene en Android.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Puente seguro con la web: addWebMessageListener publica el objeto sólo en el
+    // dominio de UcoBot, a diferencia de addJavascriptInterface.
+    implementation("androidx.webkit:webkit:1.11.0")
 }

@@ -106,6 +106,7 @@ class AgentService : Service() {
         super.onCreate()
         Config.init(this)
         crearCanal()
+        AlarmaPedidos.crearCanal(this)
         startForeground(ID_NOTIFICACION, construirNotificacion("Conectando..."))
         corriendo = true
 
@@ -269,6 +270,11 @@ class AgentService : Service() {
                     Log.i(TAG, "Impreso ${payload.optString("label", "trabajo")} (${bytes.size} bytes)")
                 }
                 "cashdrawer.open" -> Printer.abrirGaveta()
+                "order.alert" -> AlarmaPedidos.avisar(
+                    this,
+                    payload.optString("order_id"),
+                    payload.optString("label", "Pedido nuevo esperando confirmación")
+                )
                 "agent.ping" -> { /* alcanza con contestar que salió bien */ }
                 else -> throw Exception("Este equipo no sabe hacer \"$tipo\". Actualizá la app.")
             }
@@ -318,7 +324,7 @@ class AgentService : Service() {
         val abrir = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java),
+            Intent(this, EstadoActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 

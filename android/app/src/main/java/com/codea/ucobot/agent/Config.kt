@@ -1,7 +1,9 @@
 package com.codea.ucobot.agent
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
+import android.provider.Settings
 
 /**
  * Config del agente en disco.
@@ -15,8 +17,26 @@ object Config {
 
     private lateinit var prefs: SharedPreferences
 
+    /**
+     * Identificador fijo del equipo, para que revincular no cree un registro nuevo
+     * en el panel cada vez (ver scripts/165_app_android.sql).
+     *
+     * ANDROID_ID sobrevive a reinstalar la app y a reiniciar el equipo; cambia
+     * sólo con un reseteo de fábrica, que en la práctica es un equipo nuevo.
+     */
+    var deviceId: String? = null
+        private set
+
+    @SuppressLint("HardwareIds")
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(ARCHIVO, Context.MODE_PRIVATE)
+        if (deviceId == null) {
+            deviceId = try {
+                Settings.Secure.getString(context.applicationContext.contentResolver, Settings.Secure.ANDROID_ID)
+            } catch (e: Exception) {
+                null
+            }
+        }
     }
 
     var serverUrl: String

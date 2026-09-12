@@ -2,260 +2,411 @@ package com.codea.ucobot.agent
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.DownloadManager
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
-import android.media.AudioManager
+import android.util.Log
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
+import android.webkit.CookieManager
+import android.webkit.URLUtil
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import com.codea.ucobot.agent.databinding.ActivityMainBinding
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
- * La única pantalla de la app.
+ * UcoBot, adentro de la app.
  *
- * Se abre dos veces en la vida del equipo: cuando se instala, para pegar el
- * código de vinculación, y cuando algo no imprime, para ver por qué. El resto del
- * tiempo el agente vive en la notificación fija y nadie entra acá.
+ * Es la misma web de siempre, cargada de producción: cada deploy llega al
+ * instante a todos los equipos, igual que en la PWA. Lo nativo es lo que un
+ * navegador no puede hacer, y vive en otras clases:
+ *  - [Puente]: la web le pide a la app imprimir, abrir la gaveta, vincularse.
+ *  - [AgentService]: los trabajos que llegan de afuera (pedidos de WhatsApp,
+ *    tickets mandados desde otra caja) y la alarma de pedidos con la app cerrada.
  *
- * Por eso no tiene menús ni configuración: lo que se puede tocar se toca desde
- * UcoBot, en el panel del dueño, que es donde ya está mirando.
+ * Todo lo de acá son las cosas que una WebView no trae resueltas y que UcoBot
+ * usa: subir imágenes, bajar archivos, abrir links de pago afuera, el botón atrás
+ * y una pantalla clara cuando no hay internet.
  */
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var vista: ActivityMainBinding
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    companion object {
+        private const val TAG = "UcoBotApp"
+
+        /** Para abrir la app en una pantalla puntual (la notificación de un pedido). */
+        const val EXTRA_URL = "com.codea.ucobot.agent.URL"
+
+        /**
+         * Si UcoBot está a la vista. Con la app visible suena la alarma de la web;
+         * con la app en segundo plano, la nativa. Nunca las dos.
+         */
+        @Volatile var visible = false
+            private set
+    }
+
+    private lateinit var web: WebView
+    private lateinit var sinConexion: View
+    private lateinit var barraCarga: ProgressBar
+    private lateinit var puente: Puente
+
+    private var huboErrorDeCarga = false
+    private var archivosPendientes: ValueCallback<Array<Uri>>? = null
+
+    private val elegirArchivos = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { r ->
+        archivosPendientes?.onReceiveValue(
+            WebChromeClient.FileChooserParams.parseResult(r.resultCode, r.data)
+        )
+        archivosPendientes = null
+    }
 
     private val pedirPermisos = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { pintar() }
+    ) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // En los POSNET, las teclas físicas deben seguir controlando la música.
-        // La app no solicita foco de audio ni debe provocar que el sistema la baje.
+        // En los POSNET suena música: las teclas de volumen tienen que seguir
+        // manejándola, y la app no le pide foco de audio a nadie.
         volumeControlStream = AudioManager.STREAM_MUSIC
         Config.init(this)
+        window.statusBarColor = ContextCompat.getColor(this, R.color.ucobot_oscuro)
 
-        vista = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(vista.root)
+        val raiz = FrameLayout(this)
+        web = WebView(this)
+        raiz.addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
-        vista.version.text = "v${BuildConfig.VERSION_NAME} · ${Build.MANUFACTURER} ${Build.MODEL}"
+        barraCarga = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            visibility = View.GONE
+        }
+        raiz.addView(barraCarga, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3), Gravity.TOP))
 
-        vista.btnVincular.setOnClickListener { vincular() }
-        vista.btnProbar.setOnClickListener { probarImpresion() }
-        vista.btnDesvincular.setOnClickListener { confirmarDesvinculacion() }
-        vista.btnActualizar.setOnClickListener { actualizar() }
+        sinConexion = construirSinConexion()
+        raiz.addView(sinConexion, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        setContentView(raiz)
+
+        configurarWeb()
+
+        // EL PUENTE VA ANTES DE CARGAR: androidx.webkit sólo publica el objeto en
+        // las páginas que se cargan después de registrarlo.
+        puente = Puente(this, web)
+        puente.instalar()
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                // Atrás navega la web. En la pantalla inicial, la app va al fondo
+                // en vez de cerrarse: cerrarla no apaga nada y sólo obliga a
+                // volver a cargar.
+                if (web.canGoBack()) web.goBack() else moveTaskToBack(true)
+            }
+        })
 
         asegurarPermisos()
         if (Config.isPaired) AgentService.iniciar(this)
 
-        // Mientras la pantalla está abierta se refresca sola: es donde alguien
-        // está mirando si el equipo se conectó.
-        scope.launch {
-            while (true) {
-                pintar()
-                delay(2000)
-            }
+        if (savedInstanceState != null) {
+            web.restoreState(savedInstanceState)
+        } else {
+            web.loadUrl(urlPedida(intent) ?: "${Config.serverUrl}/dashboard")
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        urlPedida(intent)?.let { web.loadUrl(it) }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        visible = true
+        // Con la app a la vista suena la web: la nativa se calla.
+        AlarmaPedidos.silenciar()
+        avisarVisibilidad(true)
+    }
+
+    override fun onStop() {
+        visible = false
+        avisarVisibilidad(false)
+        AlarmaPedidos.reanudar(this)
+        CookieManager.getInstance().flush()
+        super.onStop()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        web.saveState(outState)
+    }
+
     override fun onDestroy() {
-        scope.cancel()
+        puente.cerrar()
+        web.destroy()
         super.onDestroy()
+    }
+
+    // --- Web ---------------------------------------------------------------
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun configurarWeb() {
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
+
+        with(web.settings) {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            // La alarma de pedidos no puede esperar a que alguien toque la pantalla.
+            mediaPlaybackRequiresUserGesture = false
+            // Las ventanas nuevas se atajan en onCreateWindow (links de pago, etc).
+            setSupportMultipleWindows(true)
+            javaScriptCanOpenWindowsAutomatically = true
+            useWideViewPort = true
+            loadWithOverviewMode = true
+            builtInZoomControls = false
+            displayZoomControls = false
+            // Así la web sabe que corre adentro de la app incluso antes de que el
+            // puente esté listo, y el servidor también lo puede ver.
+            userAgentString = "$userAgentString UcoBotApp/${BuildConfig.VERSION_NAME}"
+        }
+
+        // Que Android no baje la prioridad de la web apenas la app pasa al fondo:
+        // así el aviso en tiempo real de la web sigue vivo un rato más.
+        web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
+
+        web.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                if (!request.isForMainFrame) return false
+                if (esDeUcoBot(request.url)) return false
+                abrirAfuera(request.url)
+                return true
+            }
+
+            override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                huboErrorDeCarga = false
+                barraCarga.visibility = View.VISIBLE
+            }
+
+            override fun onPageFinished(view: WebView, url: String?) {
+                barraCarga.visibility = View.GONE
+                if (!huboErrorDeCarga) sinConexion.visibility = View.GONE
+                CookieManager.getInstance().flush()
+            }
+
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                if (!request.isForMainFrame) return
+                huboErrorDeCarga = true
+                Log.w(TAG, "No cargó ${request.url}: ${error.description}")
+                sinConexion.visibility = View.VISIBLE
+            }
+        }
+
+        web.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView, newProgress: Int) {
+                barraCarga.progress = newProgress
+            }
+
+            override fun onShowFileChooser(
+                webView: WebView,
+                filePathCallback: ValueCallback<Array<Uri>>,
+                fileChooserParams: WebChromeClient.FileChooserParams
+            ): Boolean {
+                // Sin esto los campos de archivo (logo del ticket, fotos de
+                // productos) no hacen nada al tocarlos.
+                archivosPendientes?.onReceiveValue(null)
+                archivosPendientes = filePathCallback
+                return try {
+                    elegirArchivos.launch(fileChooserParams.createIntent())
+                    true
+                } catch (e: ActivityNotFoundException) {
+                    archivosPendientes = null
+                    false
+                }
+            }
+
+            override fun onCreateWindow(
+                view: WebView,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: android.os.Message
+            ): Boolean {
+                // Adentro de la app no hay pestañas: la ventana nueva se abre en
+                // una WebView descartable sólo para averiguar a dónde iba. Si es
+                // UcoBot, se carga acá; si no (un link de pago), en el navegador.
+                val temporal = WebView(this@MainActivity)
+                var atendida = false
+                fun atender(uri: Uri) {
+                    if (atendida) return
+                    atendida = true
+                    if (esDeUcoBot(uri)) web.loadUrl(uri.toString()) else abrirAfuera(uri)
+                    temporal.post { temporal.destroy() }
+                }
+                temporal.webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(v: WebView, req: WebResourceRequest): Boolean {
+                        atender(req.url)
+                        return true
+                    }
+
+                    override fun onPageStarted(v: WebView, url: String?, favicon: Bitmap?) {
+                        if (!url.isNullOrBlank() && url != "about:blank") atender(Uri.parse(url))
+                    }
+                }
+                val transporte = resultMsg.obj as? WebView.WebViewTransport ?: return false
+                transporte.webView = temporal
+                resultMsg.sendToTarget()
+                return true
+            }
+        }
+
+        web.setDownloadListener { url, _, contentDisposition, mimeType, _ ->
+            descargar(url, contentDisposition, mimeType)
+        }
+    }
+
+    /** Avisa a la web si la app está a la vista, para que su alarma sepa si sonar. */
+    private fun avisarVisibilidad(estaVisible: Boolean) {
+        if (!::web.isInitialized) return
+        web.evaluateJavascript(
+            "window.__ucobotAppVisible=$estaVisible;window.dispatchEvent(new Event('ucobot-app-visibility'))",
+            null
+        )
+    }
+
+    private fun urlPedida(intent: Intent?): String? {
+        val url = intent?.getStringExtra(EXTRA_URL) ?: return null
+        return if (esDeUcoBot(Uri.parse(url))) url else null
+    }
+
+    fun esDeUcoBot(uri: Uri): Boolean {
+        val propio = Uri.parse(Config.serverUrl)
+        return (uri.scheme == "https" || uri.scheme == "http") && uri.host == propio.host
+    }
+
+    private fun abrirAfuera(uri: Uri) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: ActivityNotFoundException) {
+            Log.w(TAG, "Nadie puede abrir $uri")
+        }
+    }
+
+    private fun descargar(url: String, contentDisposition: String?, mimeType: String?) {
+        val nombre = URLUtil.guessFileName(url, contentDisposition, mimeType)
+        // Un archivo que la web armó en memoria (un blob:) no se puede bajar desde
+        // afuera: se le pide a la propia página que lo lea y se lo pase al puente.
+        if (url.startsWith("blob:")) {
+            puente.descargarBlob(url, nombre, mimeType)
+            return
+        }
+        try {
+            val pedido = DownloadManager.Request(Uri.parse(url))
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, nombre)
+            CookieManager.getInstance().getCookie(url)?.let { pedido.addRequestHeader("Cookie", it) }
+            getSystemService(DownloadManager::class.java).enqueue(pedido)
+        } catch (e: Exception) {
+            abrirAfuera(Uri.parse(url))
+        }
     }
 
     // --- Permisos ----------------------------------------------------------
 
     /**
-     * Tres permisos y ninguno es opcional:
-     *  - notificaciones: sin ellas Android no deja tener el servicio en primer
-     *    plano, que es lo único que evita que maten al agente
-     *  - dispositivos cercanos: así se llega a la impresora integrada, que el
-     *    sistema publica como un Bluetooth virtual
-     *  - batería sin optimizar: si no, el sistema lo duerme igual pasado un rato
+     * Notificaciones (sin ellas no hay servicio en primer plano ni alarma de
+     * pedidos) y dispositivos cercanos (la impresora integrada se publica como un
+     * Bluetooth virtual).
      */
     private fun asegurarPermisos() {
         val faltan = mutableListOf<String>()
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-            != PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             faltan += Manifest.permission.POST_NOTIFICATIONS
         }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
-            != PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
         ) {
             faltan += Manifest.permission.BLUETOOTH_CONNECT
         }
-
         if (faltan.isNotEmpty()) pedirPermisos.launch(faltan.toTypedArray())
     }
 
+    /** Después de vincular: si no, Android duerme el servicio pasado un rato. */
     @SuppressLint("BatteryLife")
-    private fun pedirExencionDeBateria() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+    fun pedirExencionDeBateria() {
         val pm = getSystemService(PowerManager::class.java)
         if (pm.isIgnoringBatteryOptimizations(packageName)) return
         try {
             startActivity(
-                Intent(
-                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                    Uri.parse("package:$packageName")
-                )
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
             )
         } catch (e: Exception) {
-            // Algunos equipos de POS traen esta pantalla capada; no es fatal.
+            // Algunos POSNET traen esta pantalla capada; no es fatal.
         }
     }
 
-    // --- Acciones ----------------------------------------------------------
+    // --- Sin conexión --------------------------------------------------------
 
-    private fun vincular() {
-        val codigo = vista.campoCodigo.text.toString().trim()
-        if (codigo.isBlank()) {
-            mensaje("Escribí el código que generaste en UcoBot", error = true)
-            return
-        }
+    private fun construirSinConexion(): View {
+        val oscuro = ContextCompat.getColor(this, R.color.ucobot_oscuro)
+        val verde = ContextCompat.getColor(this, R.color.ucobot_verde)
+        val gris = ContextCompat.getColor(this, R.color.ucobot_gris)
 
-        vista.btnVincular.isEnabled = false
-        vista.btnVincular.text = "Vinculando..."
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(oscuro)
+            setPadding(dp(32), dp(32), dp(32), dp(32))
+            visibility = View.GONE
+            isClickable = true
 
-        scope.launch {
-            try {
-                val nombre = withContext(Dispatchers.IO) { Api.pair(codigo) }
-                mensaje("Listo: este equipo quedó vinculado como \"$nombre\".", error = false)
-                AgentService.iniciar(this@MainActivity)
-                pedirExencionDeBateria()
-            } catch (e: Api.ApiException) {
-                mensaje(e.message ?: "No se pudo vincular", error = true)
-            } catch (e: Exception) {
-                mensaje("No se pudo conectar con UcoBot. ¿Hay internet?", error = true)
-            } finally {
-                vista.btnVincular.isEnabled = true
-                vista.btnVincular.text = "Vincular"
-                pintar()
-            }
-        }
-    }
-
-    private fun probarImpresion() {
-        vista.btnProbar.isEnabled = false
-        vista.btnProbar.text = "Imprimiendo..."
-
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    Printer.print(Printer.ticketDePrueba(Config.ticketWidth))
+            addView(TextView(context).apply {
+                text = "Sin conexión"
+                setTextColor(0xFFFFFFFF.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+                gravity = Gravity.CENTER
+            })
+            addView(TextView(context).apply {
+                text = "UcoBot necesita internet para abrirse. Los pedidos que entren mientras tanto se imprimen cuando vuelva la conexión."
+                setTextColor(gris)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(12), 0, dp(24))
+            })
+            addView(Button(context).apply {
+                text = "Reintentar"
+                setTextColor(oscuro)
+                setBackgroundColor(verde)
+                setOnClickListener {
+                    web.reload()
                 }
-                mensaje("Salió el ticket de prueba.", error = false)
-            } catch (e: Exception) {
-                mensaje(e.message ?: "No se pudo imprimir", error = true)
-            } finally {
-                vista.btnProbar.isEnabled = true
-                vista.btnProbar.text = "Imprimir prueba"
-            }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
     }
 
-    /**
-     * Instala la versión que el servicio ya dejó bajada.
-     *
-     * El permiso de "instalar apps desconocidas" no se resuelve con un diálogo:
-     * hay que mandar a la persona a Ajustes. Si no se explica acá, el sistema
-     * rebota sin decir nada y parece que el botón no anda.
-     */
-    private fun actualizar() {
-        if (Updater.necesitaPermisoDeInstalacion(this)) {
-            mensaje(
-                "Android necesita tu permiso para instalar la actualización. " +
-                    "Activá \"Permitir de esta fuente\" y volvé.",
-                error = false
-            )
-            try {
-                startActivity(Updater.intentDePermiso(this))
-            } catch (e: Exception) {
-                mensaje("No se pudo abrir Ajustes: activá 'instalar apps desconocidas' a mano", true)
-            }
-            return
-        }
-
-        val intent = Updater.intentDeInstalacion(this)
-        if (intent == null) {
-            mensaje("La actualización todavía se está descargando", error = false)
-            return
-        }
-        startActivity(intent)
-    }
-
-    private fun confirmarDesvinculacion() {
-        AlertDialog.Builder(this)
-            .setTitle("Desvincular este equipo")
-            .setMessage("Va a dejar de imprimir al instante. Para volver a usarlo hay que generar un código nuevo.")
-            .setPositiveButton("Desvincular") { _, _ ->
-                Config.unpair()
-                AgentService.detener(this)
-                mensaje("Equipo desvinculado.", error = false)
-                pintar()
-            }
-            .setNegativeButton("Cancelar", null)
-            .show()
-    }
-
-    // --- Pintado -----------------------------------------------------------
-
-    private fun pintar() {
-        val vinculado = Config.isPaired
-
-        vista.bloqueEstado.visibility = if (vinculado) View.VISIBLE else View.GONE
-        vista.bloquePareo.visibility = if (vinculado) View.GONE else View.VISIBLE
-
-        if (!vinculado) return
-
-        val nueva = Updater.pendiente
-        vista.btnActualizar.visibility = if (nueva != null) View.VISIBLE else View.GONE
-        if (nueva != null) vista.btnActualizar.text = "Actualizar a la versión $nueva"
-
-        vista.estado.text = when {
-            !AgentService.corriendo -> "Servicio detenido"
-            AgentService.timbreConectado -> "● Conectado y listo"
-            else -> "○ Reconectando..."
-        }
-
-        val impresora = if (Printer.disponible()) "detectada" else "NO detectada"
-        val lineas = mutableListOf(
-            "Equipo: ${Config.name ?: "-"}",
-            "Impresora integrada: $impresora",
-            "Papel: ${Config.ticketWidth} mm",
-            "Tickets impresos: ${AgentService.trabajosHechos}",
-        )
-        if (AgentService.trabajosFallidos > 0) {
-            lineas += "Con error: ${AgentService.trabajosFallidos}"
-        }
-        AgentService.ultimoError?.let { lineas += "Último error: $it" }
-
-        vista.detalle.text = lineas.joinToString("\n")
-    }
-
-    private fun mensaje(texto: String, error: Boolean) {
-        vista.mensaje.text = texto
-        vista.mensaje.setTextColor(if (error) 0xFFFCA5A5.toInt() else 0xFF86EFAC.toInt())
-        vista.mensaje.visibility = View.VISIBLE
-    }
+    private fun dp(valor: Int): Int =
+        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, valor.toFloat(), resources.displayMetrics).toInt()
 }

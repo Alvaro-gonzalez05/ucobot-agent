@@ -33,15 +33,27 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.UcoBotAgent">
 
+        <!-- UcoBot entero: la web adentro. configChanges evita que girar la
+             pantalla o conectar un teclado recargue la página y pierda lo que el
+             cajero estaba cargando. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Estado del equipo: impresora, timbre, versión y vinculación a mano. -->
+        <activity
+            android:name=".EstadoActivity"
+            android:exported="false"
+            android:label="Estado del equipo"
+            android:parentActivityName=".MainActivity" />
 
         <service
             android:name=".AgentService"

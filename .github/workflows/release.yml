@@ -54,6 +54,11 @@ jobs:
             dist/UcoBotAgent.exe
             UcoBotAgent-windows.zip
           generate_release_notes: true
+          # Un tag con guion (v1.2.0-beta.1) es una prueba: se publica como
+          # prerelease para que NO pase a ser "la última". El botón de descarga
+          # del panel apunta a releases/latest, y sin esto un cliente que instala
+          # el agente se llevaba una versión sin probar.
+          prerelease: ${{ contains(github.ref_name, '-') }}
 
   # El APK para los POSNET Android (iMin y compañía). Se compila siempre, aunque
   # no haya tag: es la única forma de saber que el código Android compila, porque
@@ -108,3 +113,4 @@ jobs:
         with:
           files: UcoBotAgent-android.apk
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

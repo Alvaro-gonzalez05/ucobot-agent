@@ -253,29 +253,12 @@ class MainActivity : AppCompatActivity() {
                 isUserGesture: Boolean,
                 resultMsg: android.os.Message
             ): Boolean {
-                // Adentro de la app no hay pestañas: la ventana nueva se abre en
-                // una WebView descartable sólo para averiguar a dónde iba. Si es
-                // UcoBot, se carga acá; si no (un link de pago), en el navegador.
-                val temporal = WebView(this@MainActivity)
-                var atendida = false
-                fun atender(uri: Uri) {
-                    if (atendida) return
-                    atendida = true
-                    if (esDeUcoBot(uri)) web.loadUrl(uri.toString()) else abrirAfuera(uri)
-                    temporal.post { temporal.destroy() }
-                }
-                temporal.webViewClient = object : WebViewClient() {
-                    override fun shouldOverrideUrlLoading(v: WebView, req: WebResourceRequest): Boolean {
-                        atender(req.url)
-                        return true
-                    }
-
-                    override fun onPageStarted(v: WebView, url: String?, favicon: Bitmap?) {
-                        if (!url.isNullOrBlank() && url != "about:blank") atender(Uri.parse(url))
-                    }
-                }
+                // Una ventana nueva de verdad, adentro de la app y con la sesión
+                // (conectar Mercado Pago la necesita). Si resulta ser un login de
+                // Meta, la propia ventana la manda a Chrome. Ver VentanaEmergente.
                 val transporte = resultMsg.obj as? WebView.WebViewTransport ?: return false
-                transporte.webView = temporal
+                val ventana = VentanaEmergente(this@MainActivity, web.settings.userAgentString)
+                transporte.webView = ventana.web
                 resultMsg.sendToTarget()
                 return true
             }
@@ -295,9 +278,23 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    /**
+     * A qué pantalla abrir la app, si alguien lo pidió.
+     *
+     * Dos caminos: la notificación de un pedido (EXTRA_URL) y el enlace
+     * ucobot://abrir?ruta=... con el que Chrome devuelve a la app después de
+     * conectar Instagram o Messenger (ver app/abrir-app). Sólo se aceptan rutas
+     * de UcoBot: un enlace de afuera no puede hacer que la app cargue otro sitio.
+     */
     private fun urlPedida(intent: Intent?): String? {
-        val url = intent?.getStringExtra(EXTRA_URL) ?: return null
-        return if (esDeUcoBot(Uri.parse(url))) url else null
+        intent?.getStringExtra(EXTRA_URL)?.let { url ->
+            return if (esDeUcoBot(Uri.parse(url))) url else null
+        }
+        val datos = intent?.data ?: return null
+        if (datos.scheme != "ucobot" || datos.host != "abrir") return null
+        val ruta = datos.getQueryParameter("ruta") ?: "/dashboard"
+        if (!ruta.startsWith("/") || ruta.startsWith("//")) return null
+        return "${Config.serverUrl}$ruta"
     }
 
     fun esDeUcoBot(uri: Uri): Boolean {
@@ -305,7 +302,7 @@ class MainActivity : AppCompatActivity() {
         return (uri.scheme == "https" || uri.scheme == "http") && uri.host == propio.host
     }
 
-    private fun abrirAfuera(uri: Uri) {
+    fun abrirAfuera(uri: Uri) {
         try {
             startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (e: ActivityNotFoundException) {

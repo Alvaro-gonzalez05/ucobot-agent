@@ -46,6 +46,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Volver a la app desde Chrome después de conectar Instagram o
+                 Messenger, que no se pueden conectar adentro (ver app/abrir-app). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="ucobot" android:host="abrir" />
+            </intent-filter>
         </activity>
 
         <!-- Estado del equipo: impresora, timbre, versión y vinculación a mano. -->

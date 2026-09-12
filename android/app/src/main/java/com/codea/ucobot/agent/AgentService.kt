@@ -49,6 +49,26 @@ class AgentService : Service() {
         /** Consulta de reserva por si el timbre se cayó sin avisar. */
         private const val POLL_RESERVA_MS = 60_000L
 
+        /**
+         * Consulta mientras el timbre está caído. Es lo que hace que, pase lo que
+         * pase con el WebSocket, un ticket nunca tarde más que esto. Antes el
+         * respaldo era de 60 s y en la práctica lo rescataba el latido cada 30 s:
+         * de ahí los tickets de medio minuto. Windows ya usaba 5 s.
+         */
+        private const val POLL_DEGRADADO_MS = 5_000L
+
+        /**
+         * Cuántos 401 SEGUIDOS hacen falta para desvincularse.
+         *
+         * Antes alcanzaba uno. Cuando la base tuvo un problema, el servidor
+         * contestó 401 a todos y cada equipo borró su token: se desconectaron
+         * todos los locales a la vez y hubo que revincular uno por uno. El
+         * servidor ya distingue la falla temporal (503), pero un solo error no
+         * puede tener un costo tan alto: tres latidos son 90 segundos, y un
+         * equipo revocado de verdad deja de latir igual.
+         */
+        private const val MAX_401_SEGUIDOS = 3
+
         @Volatile var corriendo = false
             private set
         @Volatile var timbreConectado = false
@@ -78,6 +98,7 @@ class AgentService : Service() {
     private val scope = CoroutineScope(Dispatchers.IO + job)
     private val candado = Mutex()
     private var doorbell: Doorbell? = null
+    @Volatile private var seguidos401 = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -98,6 +119,10 @@ class AgentService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACCION_DESPERTAR) procesarTrabajos()
+        // ESTE ERA EL AGUJERO. Revincular llama a iniciar() con el servicio ya
+        // corriendo, y eso NO pasa por onCreate: el timbre, que se había quedado
+        // sin datos al desvincular, no volvía a conectar nunca.
+        if (Config.isPaired) doorbell?.asegurarConexion()
         // START_STICKY: si Android igual lo mata por memoria, lo vuelve a levantar.
         return START_STICKY
     }
@@ -120,7 +145,12 @@ class AgentService : Service() {
         while (true) {
             if (Config.isPaired) {
                 try {
-                    val r = Api.heartbeat()
+                    val r = Api.heartbeat(doorbell)
+                    seguidos401 = 0
+                    // El latido pudo traer datos de Realtime nuevos, y además es la
+                    // red de seguridad: si el timbre quedó caído por lo que sea, acá
+                    // se levanta. Nunca más un equipo sordo hasta revincularlo.
+                    doorbell?.asegurarConexion()
                     timbreConectado = doorbell?.estaConectado == true
                     actualizarNotificacion()
                     // Si el servidor dice que hay trabajo esperando, el timbre no
@@ -139,9 +169,15 @@ class AgentService : Service() {
                     }
                 } catch (e: Api.ApiException) {
                     if (e.status == 401) {
-                        Log.w(TAG, "Equipo revocado desde el dashboard")
-                        Config.unpair()
-                        actualizarNotificacion()
+                        seguidos401++
+                        if (seguidos401 >= MAX_401_SEGUIDOS) {
+                            Log.w(TAG, "Equipo revocado desde el dashboard")
+                            Config.unpair()
+                            seguidos401 = 0
+                            actualizarNotificacion()
+                        } else {
+                            Log.w(TAG, "Token rechazado ($seguidos401 de $MAX_401_SEGUIDOS): se espera")
+                        }
                     } else {
                         Log.w(TAG, "Falló el latido: ${e.message}")
                     }
@@ -153,10 +189,31 @@ class AgentService : Service() {
         }
     }
 
+    /**
+     * Consulta de respaldo, más seguida cuanto peor está el timbre.
+     *
+     * Con el timbre andando, una consulta por minuto por las dudas. Con el timbre
+     * caído, cada 5 segundos: así la demora de un ticket nunca depende de que el
+     * WebSocket esté bien. Se mira el estado en cada vuelta y no al empezar la
+     * espera, para que una caída en el medio no deje esperando un minuto entero.
+     */
     private suspend fun cicloReserva() {
+        var ultimaConsulta = 0L
         while (true) {
-            delay(POLL_RESERVA_MS)
-            if (Config.isPaired) procesarTrabajos()
+            delay(POLL_DEGRADADO_MS)
+            if (!Config.isPaired) continue
+
+            val conectadoAhora = doorbell?.estaConectado == true
+            if (conectadoAhora != timbreConectado) {
+                timbreConectado = conectadoAhora
+                actualizarNotificacion()
+            }
+
+            val ahora = System.currentTimeMillis()
+            if (!conectadoAhora || ahora - ultimaConsulta >= POLL_RESERVA_MS) {
+                ultimaConsulta = ahora
+                procesarTrabajos()
+            }
         }
     }
 
@@ -183,8 +240,10 @@ class AgentService : Service() {
                         trabajos = Api.claimJobs()
                     }
                 } catch (e: Api.ApiException) {
-                    if (e.status == 401) Config.unpair()
-                    else Log.w(TAG, "No se pudo traer trabajo: ${e.message}")
+                    // Un 401 acá NO desvincula: lo decide el latido, que cuenta los
+                    // seguidos. Desvincular por un error suelto fue lo que dejó a
+                    // todos los locales desconectados de golpe.
+                    Log.w(TAG, "No se pudo traer trabajo: ${e.message}")
                 } catch (e: Exception) {
                     Log.w(TAG, "No se pudo traer trabajo: ${e.message}")
                 }

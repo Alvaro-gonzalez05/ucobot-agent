@@ -56,7 +56,7 @@ object Api {
 
     private fun capabilitiesJson() = JSONArray().apply { CAPABILITIES.forEach { put(it) } }
 
-    private fun devicesJson(): JSONObject {
+    private fun devicesJson(timbre: Doorbell? = null): JSONObject {
         // Lo que el dashboard muestra como "impresoras de este equipo". En un
         // POSNET siempre es una sola: la integrada.
         val impresora = JSONObject()
@@ -64,7 +64,39 @@ object Api {
             .put("kind", "system")
             .put("isDefault", true)
             .put("status", if (Printer.disponible()) "ready" else "offline")
-        return JSONObject().put("printers", JSONArray().put(impresora))
+        val devices = JSONObject().put("printers", JSONArray().put(impresora))
+        // Si late pero el timbre está caído, cada ticket espera a la consulta de
+        // respaldo. Sin este dato el panel decía "Conectada" y eso era invisible.
+        if (timbre != null) {
+            devices.put(
+                "doorbell",
+                JSONObject()
+                    .put("connected", timbre.estaConectado)
+                    .put("error", timbre.ultimoError ?: JSONObject.NULL)
+            )
+        }
+        return devices
+    }
+
+    /** Un texto del JSON, o null si falta, es null o está vacío. */
+    private fun texto(o: JSONObject, campo: String): String? =
+        if (o.isNull(campo)) null else o.optString(campo).trim().ifEmpty { null }
+
+    /**
+     * Guarda los datos del timbre si vinieron completos.
+     *
+     * Viene al vincular y, desde el servidor nuevo, en cada latido. Si falta
+     * alguno no se toca lo guardado: un servidor viejo que no los manda no puede
+     * dejar al agente sin timbre.
+     */
+    private fun guardarRealtime(r: JSONObject) {
+        val rt = r.optJSONObject("realtime") ?: return
+        val url = texto(rt, "url") ?: return
+        val key = texto(rt, "anon_key") ?: return
+        val canal = texto(rt, "channel") ?: return
+        Config.realtimeUrl = url
+        Config.realtimeKey = key
+        Config.realtimeChannel = canal
     }
 
     /** Canjea el código de vinculación por el token definitivo. */
@@ -83,25 +115,22 @@ object Api {
         Config.token = r.getString("token")
         Config.name = r.optString("name", null)
 
-        r.optJSONObject("realtime")?.let {
-            Config.realtimeUrl = it.optString("url", null)
-            Config.realtimeKey = it.optString("anon_key", null)
-            Config.realtimeChannel = it.optString("channel", null)
-        }
+        guardarRealtime(r)
 
         return Config.name ?: "Este equipo"
     }
 
     /** Latido: dice "estoy vivo" y baja la config que el dueño cambió en la web. */
-    fun heartbeat(): JSONObject {
+    fun heartbeat(timbre: Doorbell? = null): JSONObject {
         val body = JSONObject()
             .put("version", BuildConfig.VERSION_NAME)
             .put("platform", "android")
             .put("hostname", "${Build.MANUFACTURER} ${Build.MODEL}")
             .put("capabilities", capabilitiesJson())
-            .put("devices", devicesJson())
+            .put("devices", devicesJson(timbre))
 
         val r = post("/api/agent/heartbeat", body)
+        guardarRealtime(r)
 
         r.optJSONObject("settings")?.let { s ->
             if (s.has("ticketWidth")) Config.ticketWidth = s.optInt("ticketWidth", 58)

@@ -56,6 +56,14 @@ object Config {
     val isPaired: Boolean
         get() = !agentId.isNullOrBlank() && !token.isNullOrBlank()
 
+    /**
+     * Huella de los datos de Realtime. El timbre la compara con la de su conexión
+     * para darse cuenta de que tiene que reconectar: revinculado, clave rotada,
+     * o datos que se borraron con un desvinculado.
+     */
+    fun realtimeFirma(): String =
+        "${realtimeUrl?.trim()}|${realtimeKey?.trim()}|${realtimeChannel?.trim()}"
+
     fun unpair() {
         prefs.edit()
             .remove("agentId")

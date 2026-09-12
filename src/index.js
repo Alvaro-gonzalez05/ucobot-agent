@@ -53,6 +53,30 @@ const estado = {
   imprimirPrueba: () => imprimirPrueba(),
 }
 
+/**
+ * Cuántos 401 SEGUIDOS hacen falta para desvincularse.
+ *
+ * Antes alcanzaba uno. Cuando la base tuvo un problema, el servidor contestó 401
+ * a todos, cada PC borró su token y hubo que revincular los locales uno por uno.
+ * El servidor ya distingue la falla temporal (503), pero un solo error no puede
+ * tener ese costo: tres latidos son 90 segundos, y una PC revocada de verdad deja
+ * de funcionar igual.
+ */
+const MAX_401_SEGUIDOS = 3
+let seguidos401 = 0
+
+/** Callbacks del timbre, en un solo lugar para poder reconectarlo igual. */
+function conectarTimbre() {
+  return doorbell.connect(
+    () => procesarTrabajos(),
+    (conectado) => {
+      estado.timbreConectado = conectado
+      // Si se acaba de caer, no esperamos cinco segundos para revisar la cola.
+      if (!conectado) procesarTrabajos()
+    }
+  )
+}
+
 let timerLatido = null
 let timerPoll = null
 let timerImpresoras = null
@@ -74,7 +98,30 @@ async function refrescarImpresoras() {
 
 async function latir() {
   try {
-    const r = await api.heartbeat({ printers: estado.impresoras, health: printerHealth() })
+    const r = await api.heartbeat({
+      printers: estado.impresoras,
+      health: printerHealth(),
+      doorbell: doorbell.estado(),
+    })
+    seguidos401 = 0
+
+    // Los datos del timbre viajan en cada latido: si el servidor mandó otros
+    // (clave rotada, datos que se habían borrado), se guardan y se reconecta.
+    const rt = r && r.realtime
+    if (rt && rt.url && rt.anon_key && rt.channel) {
+      // Sólo se escribe si cambió: el latido corre cada 30 s y no hace falta
+      // reescribir el archivo de config cada vez para guardar lo mismo.
+      const guardado = config.load().realtime || {}
+      if (guardado.url !== rt.url || guardado.anon_key !== rt.anon_key || guardado.channel !== rt.channel) {
+        config.save({ realtime: rt })
+      }
+      if (doorbell.datosCambiaron() && estado.corriendo) {
+        log.info("Datos de Realtime nuevos: se reconecta el timbre")
+        doorbell.disconnect()
+        estado.timbreConectado = await conectarTimbre()
+      }
+    }
+
     // Si el servidor dice que hay trabajo esperando, el timbre no llegó: lo
     // agarramos ahora en vez de esperar al siguiente ciclo.
     if (r && r.pending > 0) procesarTrabajos()
@@ -83,7 +130,13 @@ async function latir() {
     if (r && r.update) updater.aplicar(r.update, () => procesando)
   } catch (e) {
     if (e.status === 401) {
+      seguidos401++
+      if (seguidos401 < MAX_401_SEGUIDOS) {
+        log.warn(`Token rechazado (${seguidos401} de ${MAX_401_SEGUIDOS}): se espera`)
+        return
+      }
       log.warn("El dashboard revocó este equipo. Hay que volver a vincularlo.")
+      seguidos401 = 0
       config.unpair()
       detenerCiclo()
       return
@@ -109,12 +162,10 @@ async function procesarTrabajos() {
       trabajos = await api.claimJobs(5)
     }
   } catch (e) {
-    if (e.status === 401) {
-      config.unpair()
-      detenerCiclo()
-    } else {
-      log.warn("No se pudo traer trabajo:", e.message)
-    }
+    // Un 401 acá NO desvincula: lo decide el latido, que cuenta los seguidos.
+    // Desvincular por un error suelto fue lo que dejó a todos los locales
+    // desconectados de golpe.
+    log.warn("No se pudo traer trabajo:", e.message)
   } finally {
     procesando = false
   }
@@ -217,14 +268,7 @@ async function arrancarCiclo() {
     return
   }
 
-  estado.timbreConectado = await doorbell.connect(
-    () => procesarTrabajos(),
-    (conectado) => {
-      estado.timbreConectado = conectado
-      // Si se acaba de caer, no esperamos cinco segundos para revisar la cola.
-      if (!conectado) procesarTrabajos()
-    }
-  )
+  estado.timbreConectado = await conectarTimbre()
 
   timerLatido = setInterval(latir, HEARTBEAT_MS)
   timerPoll = setInterval(consultaDeReserva, POLL_RESERVA_MS)

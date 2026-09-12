@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- El mismo ícono que el favicon de la web: robot blanco sobre el verde de UcoBot.
+
+     Armado como ícono adaptativo y no como la imagen del favicon pegada: Android
+     recorta el ícono con la forma que usa cada equipo (círculo, cuadrado redondeado,
+     gota). Con fondo liso y el robot adelante se ve igual en todas; con el círculo
+     del favicon pegado, en un equipo de íconos cuadrados quedaba un círculo adentro
+     de un cuadrado.
+
+     Las capas del robot (mipmap-*/ic_launcher_foreground.png) salen de
+     public/favicon-1024.png, con el robot en la misma proporción que en el favicon. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/ucobot_verde" />
-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <background android:drawable="@color/ucobot_icono" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <!-- Android 13+: íconos temáticos del sistema, con el robot solo. -->
+    <monochrome android:drawable="@mipmap/ic_launcher_foreground" />
 </adaptive-icon>

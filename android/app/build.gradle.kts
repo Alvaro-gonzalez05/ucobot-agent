@@ -14,7 +14,7 @@ android {
         // en circulación es más viejo que eso (el Swift 2 Pro trae Android 13).
         minSdk = 26
         targetSdk = 34
-        versionCode = 10
+        versionCode = 11
         versionName = "1.2.0"
     }
 

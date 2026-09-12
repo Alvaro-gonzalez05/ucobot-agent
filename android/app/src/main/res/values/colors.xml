@@ -4,4 +4,6 @@
     <color name="ucobot_verde">#D1F366</color>
     <color name="ucobot_oscuro">#1C1C28</color>
     <color name="ucobot_gris">#9B9BAA</color>
+    <!-- El verde exacto del favicon de la web: fondo del ícono de la app. -->
+    <color name="ucobot_icono">#10B77F</color>
 </resources>

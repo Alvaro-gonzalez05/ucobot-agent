@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
 object Api {
 
     /** Lo que este agente sabe hacer. El servidor filtra los trabajos por esto. */
-    val CAPABILITIES = listOf("print.raw", "cashdrawer.open", "agent.ping", "order.alert")
+    val CAPABILITIES = listOf("print.raw", "cashdrawer.open", "agent.ping", "order.alert", "notify.show")
 
     private val JSON = "application/json; charset=utf-8".toMediaType()
 

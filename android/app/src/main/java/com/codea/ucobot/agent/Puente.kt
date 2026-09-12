@@ -116,6 +116,7 @@ class Puente(private val actividad: MainActivity, private val web: WebView) {
                 .put("version", BuildConfig.VERSION_NAME)
                 .put("paired", Config.isPaired)
                 .put("agentId", Config.agentId ?: JSONObject.NULL)
+                .put("deviceId", Config.deviceId ?: JSONObject.NULL)
                 .put("agentName", Config.name ?: JSONObject.NULL)
                 .put("ticketWidth", Config.ticketWidth)
                 .put("printerReady", Printer.disponible())

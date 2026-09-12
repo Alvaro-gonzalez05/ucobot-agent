@@ -107,6 +107,7 @@ class AgentService : Service() {
         Config.init(this)
         crearCanal()
         AlarmaPedidos.crearCanal(this)
+        Avisos.crearCanal(this)
         startForeground(ID_NOTIFICACION, construirNotificacion("Conectando..."))
         corriendo = true
 
@@ -270,6 +271,12 @@ class AgentService : Service() {
                     Log.i(TAG, "Impreso ${payload.optString("label", "trabajo")} (${bytes.size} bytes)")
                 }
                 "cashdrawer.open" -> Printer.abrirGaveta()
+                "notify.show" -> Avisos.mostrar(
+                    this,
+                    payload.optString("title"),
+                    payload.optString("message"),
+                    payload.optString("link", "/dashboard")
+                )
                 "order.alert" -> AlarmaPedidos.avisar(
                     this,
                     payload.optString("order_id"),

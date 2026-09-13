@@ -51,6 +51,11 @@ const estado = {
   onPaired: () => arrancarCiclo(),
   onUnpaired: () => detenerCiclo(),
   imprimirPrueba: () => imprimirPrueba(),
+  /**
+   * Cómo se aplica una versión nueva. El .exe suelto se reemplaza a sí mismo
+   * (src/updater.js); la app de escritorio corre un instalador, y la pisa acá.
+   */
+  aplicarActualizacion: null,
 }
 
 /**
@@ -127,7 +132,7 @@ async function latir() {
     if (r && r.pending > 0) procesarTrabajos()
     // Y si hay una versión nueva, se instala sola. Nunca en el medio de un
     // ticket: reemplazar el ejecutable mata este proceso.
-    if (r && r.update) updater.aplicar(r.update, () => procesando)
+    if (r && r.update) (estado.aplicarActualizacion || updater.aplicar)(r.update, () => procesando)
   } catch (e) {
     if (e.status === 401) {
       seguidos401++
@@ -391,8 +396,25 @@ async function main() {
   }
 }
 
-// Nada tumba al agente. Si algo se escapa, queda en el log y el ciclo sigue.
-process.on("uncaughtException", (e) => log.error("Excepción no atrapada:", e.stack || e.message))
-process.on("unhandledRejection", (e) => log.error("Promesa rechazada:", (e && e.message) || e))
+/**
+ * Lo que usa la app de escritorio (desktop/main.js), que corre este mismo agente
+ * adentro de su proceso en vez de como un programa aparte.
+ */
+module.exports = {
+  estado,
+  arrancarCiclo,
+  detenerCiclo,
+  procesarTrabajos,
+  refrescarImpresoras,
+  imprimirPrueba,
+}
 
-main()
+// Sólo cuando es el programa principal: el .exe suelto o `node src/index.js`.
+// Cargado desde la app de escritorio no arranca la consola, ni se instala, ni
+// abre la pantalla local: de eso se ocupa la app.
+if (require.main === module) {
+  // Nada tumba al agente. Si algo se escapa, queda en el log y el ciclo sigue.
+  process.on("uncaughtException", (e) => log.error("Excepción no atrapada:", e.stack || e.message))
+  process.on("unhandledRejection", (e) => log.error("Promesa rechazada:", (e && e.message) || e))
+  main()
+}

@@ -51,4 +51,17 @@ const handlers = {
   }),
 }
 
-module.exports = { handlers }
+/**
+ * Suma una capacidad nueva en tiempo de ejecución.
+ *
+ * La usa la app de escritorio para las notificaciones ("notify.show",
+ * "order.alert"), que el agente suelto no puede mostrar: no tiene ventana. Se
+ * agrega al mismo arreglo que se manda en cada latido, así el servidor empieza a
+ * encolarle esos trabajos sin tocar nada más.
+ */
+function registrarCapacidad(nombre, handler) {
+  handlers[nombre] = handler
+  if (!CAPABILITIES.includes(nombre)) CAPABILITIES.push(nombre)
+}
+
+module.exports = { handlers, registrarCapacidad }

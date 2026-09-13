@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>UcoBot · Sin conexión</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid; place-items: center;
+    background: #1C1C28; color: #fff;
+    font-family: "Segoe UI", system-ui, sans-serif;
+  }
+  main { max-width: 420px; padding: 24px; text-align: center; display: grid; gap: 14px; }
+  h1 { margin: 0; font-size: 24px; font-weight: 600; }
+  p { margin: 0; color: #9B9BAA; line-height: 1.5; }
+  button {
+    justify-self: center; margin-top: 8px; padding: 12px 28px;
+    border: 0; border-radius: 10px; background: #D1F366; color: #1C1C28;
+    font: 600 15px "Segoe UI", system-ui, sans-serif; cursor: pointer;
+  }
+  button:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+  small { color: #6f7182; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sin conexión</h1>
+  <p>UcoBot necesita internet para abrirse. Los pedidos que entren mientras tanto se imprimen cuando vuelva la conexión.</p>
+  <button id="reintentar" type="button">Reintentar</button>
+  <small id="auto">Se reintenta solo cada 15 segundos.</small>
+</main>
+<script>
+  // Vuelve a la pantalla donde se había quedado. Sólo si es de UcoBot: el destino
+  // llega por parámetro y no puede servir para abrir otro sitio.
+  const destino = new URLSearchParams(location.search).get("destino") || ""
+  function reintentar() {
+    try {
+      const u = new URL(destino)
+      if (u.protocol === "https:" || u.protocol === "http:") { location.href = u.href; return }
+    } catch (e) {}
+    history.back()
+  }
+  document.getElementById("reintentar").addEventListener("click", reintentar)
+  setInterval(() => { if (navigator.onLine) reintentar() }, 15000)
+</script>
+</body>
+</html>

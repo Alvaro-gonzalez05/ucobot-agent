@@ -6,7 +6,9 @@
   "bin": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "build": "pkg . --targets node22-win-x64 --output dist/UcoBotAgent.exe --compress GZip"
+    "build": "pkg . --targets node22-win-x64 --output dist/UcoBotAgent.exe --compress GZip",
+    "desktop": "electron desktop/main.js",
+    "build:desktop": "electron-builder --win nsis --publish never"
   },
   "pkg": {
     "assets": [
@@ -18,8 +20,49 @@
     "@supabase/supabase-js": "^2.45.0"
   },
   "devDependencies": {
-    "@yao-pkg/pkg": "^5.16.1"
+    "@yao-pkg/pkg": "^5.16.1",
+    "electron": "44.3.0",
+    "electron-builder": "26.15.3"
   },
   "license": "UNLICENSED",
-  "private": true
+  "private": true,
+  "build": {
+    "appId": "com.codea.ucobot.desktop",
+    "productName": "UcoBot",
+    "extraMetadata": {
+      "main": "desktop/main.js"
+    },
+    "directories": {
+      "output": "dist-desktop",
+      "buildResources": "desktop/build"
+    },
+    "files": [
+      "desktop/**/*",
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "desktop/build/icon.png",
+      "artifactName": "UcoBot-Setup.exe"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "UcoBot",
+      "runAfterFinish": true
+    },
+    "protocols": [
+      {
+        "name": "UcoBot",
+        "schemes": [
+          "ucobot"
+        ]
+      }
+    ]
+  }
 }

@@ -28,14 +28,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 22: Electron 44 (la app de escritorio) no se instala con Node 20, y el
+      # .exe suelto se empaqueta igual para node22.
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - run: npm ci
 
       # pkg mete Node adentro del .exe: el cliente no instala nada previo.
       - run: npm run build
+
+      # La app de escritorio (Electron): UcoBot entero más el agente adentro, en un
+      # instalador. Mismo código de src/ que el .exe suelto.
+      - name: Armar la app de escritorio
+        run: npm run build:desktop
 
       # El .exe se instala solo, así que el ZIP es sólo una comodidad para quien
       # prefiera bajar un paquete con las instrucciones al lado. El archivo que
@@ -53,6 +60,7 @@ jobs:
           files: |
             dist/UcoBotAgent.exe
             UcoBotAgent-windows.zip
+            dist-desktop/UcoBot-Setup.exe
           generate_release_notes: true
           # Un tag con guion (v1.2.0-beta.1) es una prueba: se publica como
           # prerelease para que NO pase a ser "la última". El botón de descarga

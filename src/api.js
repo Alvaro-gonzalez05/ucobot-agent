@@ -51,6 +51,36 @@ async function pedir(ruta, { method = "POST", body, auth = true, timeoutMs = 150
   }
 }
 
+/**
+ * La plataforma que se reporta. La app de escritorio dice "windows-app": así el
+ * servidor le manda su instalador y no el .exe suelto del agente.
+ */
+const PLATAFORMA = process.env.UCOBOT_PLATFORM || process.platform
+
+let dispositivoCache
+/**
+ * Identificador fijo del equipo, para que revincular no cree otro registro en el
+ * panel (ver scripts/165_app_android.sql). En Windows es el MachineGuid del
+ * registro: sobrevive a reinstalar y cambia sólo con un Windows nuevo.
+ */
+function dispositivo() {
+  if (dispositivoCache !== undefined) return dispositivoCache
+  dispositivoCache = process.env.UCOBOT_DEVICE_ID || null
+  if (!dispositivoCache && process.platform === "win32") {
+    try {
+      const salida = require("child_process").execSync(
+        'reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid',
+        { encoding: "utf8", windowsHide: true, timeout: 5000 }
+      )
+      const m = salida.match(/MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)/)
+      dispositivoCache = m ? m[1].toLowerCase() : null
+    } catch {
+      dispositivoCache = null
+    }
+  }
+  return dispositivoCache
+}
+
 /** Canjea el código de vinculación por el token definitivo. */
 async function pair(code, devices) {
   const datos = await pedir("/api/agent/pair", {
@@ -58,10 +88,11 @@ async function pair(code, devices) {
     body: {
       code,
       hostname: os.hostname(),
-      platform: process.platform,
+      platform: PLATAFORMA,
       version: VERSION,
       capabilities: CAPABILITIES,
       devices,
+      device_id: dispositivo(),
     },
   })
 
@@ -85,7 +116,7 @@ async function heartbeat(devices) {
   const datos = await pedir("/api/agent/heartbeat", {
     body: {
       version: VERSION,
-      platform: process.platform,
+      platform: PLATAFORMA,
       hostname: os.hostname(),
       capabilities: CAPABILITIES,
       devices,
@@ -110,4 +141,4 @@ async function reportResult(jobId, ok, extra = {}) {
   })
 }
 
-module.exports = { pair, heartbeat, claimJobs, reportResult }
+module.exports = { pair, heartbeat, claimJobs, reportResult, dispositivo }

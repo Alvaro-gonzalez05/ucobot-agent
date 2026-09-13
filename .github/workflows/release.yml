@@ -1,8 +1,9 @@
 name: Release
 
-# Publica el instalador en la pestaña Releases del repo, que es de donde lo baja
-# el cliente desde el dashboard (el botón "Descargar UcoBot Agent" apunta a
-# /releases/latest).
+# Publica los instaladores en la pestaña Releases del repo, que es de donde los
+# baja el cliente desde el dashboard: los botones Windows y Android del panel
+# apuntan a /releases/latest/download/<archivo>, y los equipos ya instalados
+# bajan de ahí mismo la versión que anuncia la web.
 #
 # Para publicar una versión: subir el número en package.json, y después
 #   git tag v1.0.1 && git push origin v1.0.1

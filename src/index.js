@@ -10,7 +10,7 @@ const installer = require("./installer")
 const updater = require("./updater")
 const { handlers } = require("./jobs")
 const { listPrinters, printerHealth } = require("./printers/list")
-const { printRawWindows } = require("./printers/windows-raw")
+const { printRawWindows, precalentarImpresion } = require("./printers/windows-raw")
 const { printRawTcp, esDestinoDeRed } = require("./printers/tcp")
 const { VERSION } = require("./capabilities")
 
@@ -261,6 +261,10 @@ async function imprimirPrueba() {
 async function arrancarCiclo() {
   if (estado.corriendo) return
   estado.corriendo = true
+
+  // En paralelo con lo demás: cuando llegue el primer ticket, PowerShell ya está
+  // abierto y compilado.
+  precalentarImpresion()
 
   await refrescarImpresoras()
   await latir()

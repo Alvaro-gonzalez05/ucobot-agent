@@ -34,8 +34,17 @@ const HEARTBEAT_MS = 30_000
 /**
  * Consulta de reserva por si el timbre se cayó o la red bloquea WebSockets.
  * Cinco segundos limita la demora sin volver al sondeo por segundo que se evitó
- * al crear el timbre. También cubre el caso más difícil de detectar: un canal
- * que todavía figura conectado pero perdió un aviso durante un corte breve.
+ * al crear el timbre.
+ *
+ * SÓLO CORRE CON EL TIMBRE CAÍDO. Hasta la 1.2.3 consultaba cada 5 segundos
+ * siempre, con el timbre andando: cada PC prendida hacía ~17.000 consultas por
+ * día a la cola vacía, y los agentes llegaron a ser el 85% del tráfico de la
+ * base de madrugada y el 30% en el pico de la cena, compitiendo con los pedidos.
+ *
+ * El caso difícil — un canal que figura conectado pero perdió un aviso en un
+ * corte breve — lo cubre el latido: el servidor contesta cuántos trabajos hay
+ * pendientes y, si hay, se procesan ahí (ver `latir`). La demora máxima en ese
+ * caso raro pasa de 5 a 30 segundos; en el normal el ticket sale al instante.
  */
 const POLL_RESERVA_MS = 5_000
 /** El inventario de impresoras cambia poco; no hace falta mirarlo seguido. */
@@ -76,8 +85,10 @@ function conectarTimbre() {
     () => procesarTrabajos(),
     (conectado) => {
       estado.timbreConectado = conectado
-      // Si se acaba de caer, no esperamos cinco segundos para revisar la cola.
-      if (!conectado) procesarTrabajos()
+      // Tanto si se cayó como si volvió: se revisa la cola en el acto. Al caerse,
+      // para no esperar a la consulta de reserva; al volver, por los avisos que
+      // pudieron perderse mientras estuvo desconectado.
+      procesarTrabajos()
     }
   )
 }
@@ -88,6 +99,7 @@ let timerImpresoras = null
 let procesando = false
 
 function consultaDeReserva() {
+  if (estado.timbreConectado) return
   procesarTrabajos()
 }
 

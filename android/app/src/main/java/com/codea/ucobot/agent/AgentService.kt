@@ -46,9 +46,6 @@ class AgentService : Service() {
         /** Cada cuánto late contra el servidor. */
         private const val LATIDO_MS = 30_000L
 
-        /** Consulta de reserva por si el timbre se cayó sin avisar. */
-        private const val POLL_RESERVA_MS = 60_000L
-
         /**
          * Consulta mientras el timbre está caído. Es lo que hace que, pase lo que
          * pase con el WebSocket, un ticket nunca tarde más que esto. Antes el
@@ -192,15 +189,18 @@ class AgentService : Service() {
     }
 
     /**
-     * Consulta de respaldo, más seguida cuanto peor está el timbre.
+     * Consulta de respaldo: SÓLO con el timbre caído, cada 5 segundos.
      *
-     * Con el timbre andando, una consulta por minuto por las dudas. Con el timbre
-     * caído, cada 5 segundos: así la demora de un ticket nunca depende de que el
-     * WebSocket esté bien. Se mira el estado en cada vuelta y no al empezar la
-     * espera, para que una caída en el medio no deje esperando un minuto entero.
+     * Con el timbre andando no se pregunta nada: los tickets llegan por el timbre
+     * y, si un aviso se pierde, el latido (que informa los trabajos pendientes)
+     * lo levanta en 30 s como máximo. Hasta la 1.2.1 se consultaba igual una vez
+     * por minuto por las dudas; ahora es lo mismo que el agente de Windows 1.2.4.
+     *
+     * Cuando el timbre cambia de estado se revisa la cola en el acto: al caerse,
+     * para no esperar la próxima vuelta; al volver, por los avisos perdidos
+     * mientras estuvo desconectado.
      */
     private suspend fun cicloReserva() {
-        var ultimaConsulta = 0L
         while (true) {
             delay(POLL_DEGRADADO_MS)
             if (!Config.isPaired) continue
@@ -209,11 +209,8 @@ class AgentService : Service() {
             if (conectadoAhora != timbreConectado) {
                 timbreConectado = conectadoAhora
                 actualizarNotificacion()
-            }
-
-            val ahora = System.currentTimeMillis()
-            if (!conectadoAhora || ahora - ultimaConsulta >= POLL_RESERVA_MS) {
-                ultimaConsulta = ahora
+                procesarTrabajos()
+            } else if (!conectadoAhora) {
                 procesarTrabajos()
             }
         }

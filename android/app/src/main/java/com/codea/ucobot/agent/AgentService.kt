@@ -38,7 +38,13 @@ class AgentService : Service() {
 
     companion object {
         private const val TAG = "UcoBotAgent"
-        private const val CANAL = "ucobot_agent"
+        /**
+         * El canal de la notificación fija. Cambió de id porque Android no deja
+         * bajarle la importancia a un canal ya creado: el viejo se borra al crear
+         * este (ver crearCanal).
+         */
+        private const val CANAL = "ucobot_segundo_plano"
+        private const val CANAL_VIEJO = "ucobot_agent"
         private const val ID_NOTIFICACION = 1
 
         const val ACCION_DESPERTAR = "com.codea.ucobot.agent.DESPERTAR"
@@ -105,7 +111,7 @@ class AgentService : Service() {
         crearCanal()
         AlarmaPedidos.crearCanal(this)
         Avisos.crearCanal(this)
-        startForeground(ID_NOTIFICACION, construirNotificacion("Conectando..."))
+        startForeground(ID_NOTIFICACION, construirNotificacion(null))
         corriendo = true
 
         doorbell = Doorbell { procesarTrabajos() }.also { it.connect() }
@@ -308,45 +314,66 @@ class AgentService : Service() {
 
     // --- Notificación ------------------------------------------------------
 
+    /**
+     * LA NOTIFICACIÓN FIJA NO DICE NADA.
+     *
+     * Android obliga a que un servicio que corre en segundo plano tenga una
+     * notificación: sin ella el sistema mata la app y deja de sonar la alarma de
+     * pedidos. Lo que sí se elige es cuánto molesta. Al principio la app era sólo
+     * un agente de impresión y decía "UcoBot Agent · Listo para imprimir"; ahora
+     * es UcoBot entero, así que va en importancia MÍNIMA (sin ícono arriba,
+     * colapsada abajo de todo) y sólo con el nombre. Texto, únicamente si hay un
+     * problema que alguien tiene que resolver.
+     */
     private fun crearCanal() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = getSystemService(NotificationManager::class.java)
         val canal = NotificationChannel(
             CANAL,
-            "UcoBot Agent",
-            // Baja: la notificación tiene que estar, pero sin sonar ni molestar.
-            NotificationManager.IMPORTANCE_LOW
+            "UcoBot en segundo plano",
+            NotificationManager.IMPORTANCE_MIN
         ).apply {
-            description = "Mantiene la impresión de tickets funcionando"
+            description = "Mantiene UcoBot conectado para que lleguen los pedidos y los avisos"
             setShowBadge(false)
             setSound(null, null)
             enableVibration(false)
         }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(canal)
+        nm.createNotificationChannel(canal)
+        try {
+            nm.deleteNotificationChannel(CANAL_VIEJO)
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudo borrar el canal viejo: ${e.message}")
+        }
     }
 
-    private fun construirNotificacion(estado: String): Notification {
+    private fun construirNotificacion(problema: String?): Notification {
+        // Tocarla abre UcoBot. Si hay un problema, la pantalla de estado del
+        // equipo, que es donde se arregla.
+        val destino = if (problema != null) EstadoActivity::class.java else MainActivity::class.java
         val abrir = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, EstadoActivity::class.java),
+            Intent(this, destino),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        return Notification.Builder(this, CANAL)
-            .setContentTitle("UcoBot Agent")
-            .setContentText(estado)
+        val b = Notification.Builder(this, CANAL)
+            .setContentTitle("UcoBot")
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentIntent(abrir)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .build()
+            .setShowWhen(false)
+        if (problema != null) b.setContentText(problema)
+        return b.build()
     }
 
     private fun actualizarNotificacion() {
-        val estado = when {
-            !Config.isPaired -> "Sin vincular: tocá para configurar"
-            timbreConectado -> "Listo para imprimir"
-            else -> "Reconectando..."
+        // Conectado no se anuncia: es lo normal. Sólo se dice lo que falta.
+        val estado: String? = when {
+            !Config.isPaired -> "Sin sesión: abrí UcoBot e iniciá sesión"
+            timbreConectado -> null
+            else -> "Sin conexión, reintentando"
         }
         try {
             getSystemService(NotificationManager::class.java)

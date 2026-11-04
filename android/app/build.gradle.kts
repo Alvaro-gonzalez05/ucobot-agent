@@ -14,8 +14,8 @@ android {
         // en circulación es más viejo que eso (el Swift 2 Pro trae Android 13).
         minSdk = 26
         targetSdk = 34
-        versionCode = 14
-        versionName = "1.2.5"
+        versionCode = 15
+        versionName = "1.2.6"
     }
 
     val releaseKeystore = System.getenv("ANDROID_KEYSTORE_PATH")
